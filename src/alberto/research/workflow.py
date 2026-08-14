@@ -226,7 +226,7 @@ def deterministic_screening_score(config: dict, title: str, abstract: str | None
 
 def semantic_screen_candidate(config: dict, record: PaperRecord) -> ScreeningResult:
     payload = invoke_openclaw_json(
-        ["openclaw", "agent", "exec", "--model", SEMANTIC_SCREENING_MODEL],
+        ["openclaw", "agent", "exec", "--model", SEMANTIC_SCREENING_MODEL, "--no-auth-env-only"],
         build_semantic_screening_prompt(config, record),
         timeout_seconds=120,
     )

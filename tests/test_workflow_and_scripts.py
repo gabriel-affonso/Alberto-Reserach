@@ -254,7 +254,14 @@ def test_production_semantic_screen_path_calls_openclaw(monkeypatch) -> None:
         PaperRecord(title="Paper", abstract="Abstract", authors=("Ada",), venue="Venue", publication_year=2026),
     )
     assert result.decision == "DEEP_READ"
-    assert calls[0][0] == ["openclaw", "agent", "exec", "--model", "openai/gpt-5.6-sol"]
+    assert calls[0][0] == [
+        "openclaw",
+        "agent",
+        "exec",
+        "--model",
+        "openai/gpt-5.6-sol",
+        "--no-auth-env-only",
+    ]
     assert "Paper title: Paper" in calls[0][1]
 
 
