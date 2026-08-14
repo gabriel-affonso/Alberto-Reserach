@@ -26,7 +26,7 @@ Override with environment variables from `.env.example`.
 
 ## OpenClaw
 
-The installer probes `openclaw --version`, `openclaw doctor --lint --severity-min error --json`, `openclaw config get`, `openclaw plugins list --json` and `openclaw cron list` where available. It does not silently overwrite existing OpenClaw configuration. Alberto agent entries are merged by id, unrelated entries are preserved, and conflicting Alberto entries stop the install unless explicitly allowed by environment variable after review.
+The installer probes `openclaw --version`, `openclaw doctor --lint --severity-min error --json`, `openclaw agents list --json`, `openclaw plugins list --json` and `openclaw cron list` where available. It does not silently overwrite existing OpenClaw configuration. The existing `main` agent remains Alberto's orchestrator and is never modified. Alberto creates only `alberto-research` and `research-reader` through `openclaw agents add`; unrelated entries are preserved, and conflicting Alberto-owned entries stop the install for review.
 
 If OpenClaw is not installed, Alberto still installs its Python package and database, and reports that OpenClaw registration was skipped.
 

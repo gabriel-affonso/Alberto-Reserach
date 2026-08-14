@@ -153,7 +153,7 @@ section "OpenClaw"
 if have openclaw; then
   ok "openclaw found at $(command -v openclaw)"
   echo "version=$(openclaw_version)"
-  show_command_output "openclaw config agents.entries" openclaw config get agents.entries --json || true
+  show_command_output "openclaw agents list --json" openclaw agents list --json || true
   show_command_output "openclaw plugins list" openclaw plugins list --json || true
   show_command_output "openclaw cron list" openclaw cron list || true
   if openclaw doctor --help >/dev/null 2>&1; then

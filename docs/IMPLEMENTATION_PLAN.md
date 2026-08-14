@@ -150,3 +150,18 @@ Acceptance criteria:
 - Mac-to-Linux NUC deployment and rollback documentation exists.
 
 Completion note: production portability hardening was added after the V1 foundation.
+
+## M12 - Supported OpenClaw Agent Deployment
+
+Status: complete
+
+Acceptance criteria:
+
+- Installer does not create `alberto-main`.
+- Existing OpenClaw `main` remains the Alberto orchestrator and is not modified.
+- Alberto creates only `alberto-research` and `research-reader`.
+- Agent creation uses `openclaw agents add <agent-id> --workspace <workspace> --model <model> --non-interactive`.
+- Existing Alberto-owned agents are detected with `openclaw agents list`.
+- Dry-run prints intended operations without creating venvs, installing packages, migrating databases, modifying files, creating agents or creating cron jobs.
+
+Completion note: deployment now uses the supported OpenClaw agent management CLI instead of internal config paths.

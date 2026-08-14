@@ -10,6 +10,8 @@ OPENCLAW_SKILLS_DIR="${OPENCLAW_SKILLS_DIR:-$OPENCLAW_HOME/skills}"
 PROJECT_FILE="${ALBERTO_PROJECT_FILE:-$ROOT_DIR/projects/example-research.yaml}"
 BACKUP_ROOT="${ALBERTO_BACKUP_ROOT:-$ALBERTO_HOME/backups}"
 BACKUP_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+ALBERTO_RESEARCH_MODEL="${ALBERTO_RESEARCH_MODEL:-openai/gpt-5.6-sol}"
+ALBERTO_READER_MODEL="${ALBERTO_READER_MODEL:-openai/gpt-5.6-sol}"
 DRY_RUN=0
 SKIP_OPENCLAW=0
 
@@ -72,6 +74,10 @@ safe_install_dir() {
   local src="$1"
   local dest="$2"
   local label="$3"
+  if [[ "$DRY_RUN" == "1" ]]; then
+    echo "+ install $label from $src to $dest if absent or explicitly approved"
+    return
+  fi
   if [[ -e "$dest" ]]; then
     if diff -qr "$src" "$dest" >/dev/null 2>&1; then
       note "$label already installed and identical: $dest"
@@ -88,48 +94,192 @@ safe_install_dir() {
   run cp -R "$src" "$dest"
 }
 
-config_get() {
-  local path="$1"
-  openclaw config get "$path" --json 2>/dev/null || true
-}
-
-ensure_agent_entry() {
-  local agent_id="$1"
-  local workspace="$2"
-  local current
-  current="$(config_get "agents.entries.$agent_id")"
-  if [[ -n "$current" && "$current" != "null" ]]; then
-    if printf '%s' "$current" | grep -F "$workspace" >/dev/null 2>&1; then
-      note "OpenClaw agent $agent_id already points at $workspace"
-      return
-    fi
-    if [[ "${ALBERTO_ALLOW_OPENCLAW_AGENT_UPDATE:-0}" != "1" ]]; then
-      echo "Existing OpenClaw agent '$agent_id' differs from Alberto's desired workspace." >&2
-      echo "No change made. Review with: openclaw config get agents.entries.$agent_id --json" >&2
-      echo "Set ALBERTO_ALLOW_OPENCLAW_AGENT_UPDATE=1 only after confirming this is safe." >&2
-      exit 1
-    fi
-  fi
-  local payload
-  payload="$(printf '{"workspace":"%s"}' "$workspace")"
-  run openclaw config set "agents.entries.$agent_id" "$payload" --strict-json --merge
-}
-
 ensure_codex_harness() {
-  local current
-  current="$(config_get "plugins.entries.codex")"
-  if [[ -n "$current" && "$current" != "null" ]]; then
+  if [[ "$DRY_RUN" == "1" ]]; then
+    echo "+ inspect OpenClaw plugin inventory for codex"
+    note "Would preserve existing Codex plugin configuration"
+    return
+  fi
+  if openclaw plugins list --json 2>/dev/null | grep -i '"codex"' >/dev/null 2>&1; then
     note "Codex plugin entry already exists; not replacing existing harness config"
     return
   fi
-  local payload='{"enabled":true,"config":{"discovery":{"enabled":true,"timeoutMs":2500},"appServer":{"mode":"guardian","homeScope":"agent"},"codexDynamicToolsLoading":"searchable"}}'
-  run openclaw config set "plugins.entries.codex" "$payload" --strict-json --merge
+  note "Codex plugin was not confirmed by OpenClaw plugin inventory; leaving existing plugin configuration unchanged"
+}
+
+verify_agents_add_cli() {
+  run openclaw agents add --help
+}
+
+agent_list_json() {
+  openclaw agents list --json 2>/dev/null || openclaw agents list 2>/dev/null || true
+}
+
+agent_exists_in_list() {
+  local agent_id="$1"
+  local agents_json="$2"
+  AGENTS_JSON="$agents_json" python3 - "$agent_id" <<'PY'
+import json
+import os
+import re
+import sys
+
+agent_id = sys.argv[1]
+text = os.environ.get("AGENTS_JSON", "")
+try:
+    payload = json.loads(text)
+except json.JSONDecodeError:
+    raise SystemExit(0 if re.search(rf"(^|[^A-Za-z0-9_-]){re.escape(agent_id)}([^A-Za-z0-9_-]|$)", text) else 1)
+
+if isinstance(payload, dict):
+    candidates = payload.get("agents") or payload.get("list") or payload.get("entries") or payload.get("data") or []
+elif isinstance(payload, list):
+    candidates = payload
+else:
+    candidates = []
+
+for item in candidates:
+    if isinstance(item, str) and item == agent_id:
+        raise SystemExit(0)
+    if isinstance(item, dict) and str(item.get("id") or item.get("name") or "") == agent_id:
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
+agent_workspace_in_list() {
+  local agent_id="$1"
+  local workspace="$2"
+  local agents_json="$3"
+  AGENTS_JSON="$agents_json" python3 - "$agent_id" "$workspace" <<'PY'
+import json
+import os
+import sys
+
+agent_id = sys.argv[1]
+workspace = sys.argv[2]
+text = os.environ.get("AGENTS_JSON", "")
+try:
+    payload = json.loads(text)
+except json.JSONDecodeError:
+    raise SystemExit(2)
+
+if isinstance(payload, dict):
+    candidates = payload.get("agents") or payload.get("list") or payload.get("entries") or payload.get("data") or []
+elif isinstance(payload, list):
+    candidates = payload
+else:
+    candidates = []
+
+for item in candidates:
+    if isinstance(item, dict) and str(item.get("id") or item.get("name") or "") == agent_id:
+        actual = str(item.get("workspace") or item.get("workspaceDir") or "")
+        if actual == workspace:
+            raise SystemExit(0)
+        if actual:
+            print(actual)
+            raise SystemExit(1)
+        raise SystemExit(2)
+raise SystemExit(2)
+PY
+}
+
+agent_model_in_list() {
+  local agent_id="$1"
+  local model="$2"
+  local agents_json="$3"
+  AGENTS_JSON="$agents_json" python3 - "$agent_id" "$model" <<'PY'
+import json
+import os
+import sys
+
+agent_id = sys.argv[1]
+model = sys.argv[2]
+text = os.environ.get("AGENTS_JSON", "")
+try:
+    payload = json.loads(text)
+except json.JSONDecodeError:
+    raise SystemExit(2)
+
+if isinstance(payload, dict):
+    candidates = payload.get("agents") or payload.get("list") or payload.get("entries") or payload.get("data") or []
+elif isinstance(payload, list):
+    candidates = payload
+else:
+    candidates = []
+
+for item in candidates:
+    if isinstance(item, dict) and str(item.get("id") or item.get("name") or "") == agent_id:
+        actual = str(item.get("model") or item.get("runtimeModel") or "")
+        if actual == model:
+            raise SystemExit(0)
+        if actual:
+            print(actual)
+            raise SystemExit(1)
+        raise SystemExit(2)
+raise SystemExit(2)
+PY
+}
+
+ensure_openclaw_agent() {
+  local agent_id="$1"
+  local workspace="$2"
+  local model="$3"
+  if [[ "$DRY_RUN" == "1" ]]; then
+    echo "+ openclaw agents list --json"
+    echo "+ openclaw agents add $agent_id --workspace $workspace --model $model --non-interactive --json if missing"
+    return
+  fi
+  local agents
+  agents="$(agent_list_json)"
+  if agent_exists_in_list "$agent_id" "$agents"; then
+    note "OpenClaw agent already exists: $agent_id"
+    local workspace_check
+    set +e
+    workspace_check="$(agent_workspace_in_list "$agent_id" "$workspace" "$agents")"
+    local workspace_status=$?
+    set -e
+    case "$workspace_status" in
+      0) note "Verified $agent_id workspace: $workspace" ;;
+      1)
+        echo "Existing OpenClaw agent '$agent_id' points at a different workspace: $workspace_check" >&2
+        echo "No change made. Only Alberto Research-owned agents may be reviewed and corrected manually." >&2
+        exit 1
+        ;;
+      *) note "Agent $agent_id exists; workspace was not present in agents list output, so no modification was made" ;;
+    esac
+    local model_check
+    set +e
+    model_check="$(agent_model_in_list "$agent_id" "$model" "$agents")"
+    local model_status=$?
+    set -e
+    case "$model_status" in
+      0) note "Verified $agent_id model: $model" ;;
+      1)
+        echo "Existing OpenClaw agent '$agent_id' uses a different model: $model_check" >&2
+        echo "No change made. Review Alberto-owned agent runtime with supported OpenClaw operations." >&2
+        exit 1
+        ;;
+      *) note "Agent $agent_id exists; model was not present in agents list output, so no modification was made" ;;
+    esac
+    return
+  fi
+  run openclaw agents add "$agent_id" \
+    --workspace "$workspace" \
+    --model "$model" \
+    --non-interactive \
+    --json
 }
 
 ensure_cron_job() {
   local name="$1"
   local cron_expr="$2"
   local message="$3"
+  if [[ "$DRY_RUN" == "1" ]]; then
+    echo "+ openclaw cron list"
+    echo "+ openclaw cron add --name $name --cron $cron_expr --tz ${ALBERTO_TIMEZONE:-Europe/Lisbon} --session isolated --agent ${ALBERTO_OPENCLAW_AGENT:-alberto-research} --message $message if missing"
+    return
+  fi
   local jobs
   jobs="$(openclaw cron list 2>/dev/null || true)"
   if printf '%s' "$jobs" | grep -F "$name" >/dev/null 2>&1; then
@@ -172,7 +322,11 @@ run mkdir -p "$BACKUP_ROOT"
 backup_path "$ALBERTO_DB" "alberto.sqlite3"
 if openclaw_available && [[ "$SKIP_OPENCLAW" != "1" ]]; then
   note "OpenClaw detected: $(command -v openclaw)"
-  note "OpenClaw version: $(openclaw_version)"
+  if [[ "$DRY_RUN" == "1" ]]; then
+    note "Would detect OpenClaw version"
+  else
+    note "OpenClaw version: $(openclaw_version)"
+  fi
   backup_path "$OPENCLAW_CONFIG_PATH" "openclaw.json"
   backup_path "$OPENCLAW_HOME/state" "openclaw-state"
   backup_path "$OPENCLAW_HOME/cron" "openclaw-cron"
@@ -201,12 +355,13 @@ if openclaw_available && [[ "$SKIP_OPENCLAW" != "1" ]]; then
   if [[ "$DRY_RUN" != "1" ]]; then
     openclaw --help >/dev/null
   fi
-  note "Existing OpenClaw agents are preserved; Alberto entries are merged only by id."
+  note "Existing OpenClaw main agent is preserved and remains Alberto's orchestrator."
 
   say_phase "agents"
-  ensure_agent_entry "alberto-main" "$ROOT_DIR/openclaw/agents/alberto-main"
-  ensure_agent_entry "alberto-research" "$ROOT_DIR/openclaw/agents/alberto-research"
-  ensure_agent_entry "research-reader" "$ROOT_DIR/openclaw/agents/research-reader"
+  verify_agents_add_cli
+  note "Not creating a separate orchestrator agent; existing main remains untouched."
+  ensure_openclaw_agent "alberto-research" "$ROOT_DIR/openclaw/agents/alberto-research" "$ALBERTO_RESEARCH_MODEL"
+  ensure_openclaw_agent "research-reader" "$ROOT_DIR/openclaw/agents/research-reader" "$ALBERTO_READER_MODEL"
 
   say_phase "skills"
   safe_install_dir "$ROOT_DIR/openclaw/skills/research" "$OPENCLAW_SKILLS_DIR/alberto-research" "alberto-research-skill"

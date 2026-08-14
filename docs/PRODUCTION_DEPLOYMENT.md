@@ -61,7 +61,11 @@ Installer phases:
 - integration checks
 - smoke test
 
-The installer merges Alberto-specific OpenClaw entries by id. Existing unrelated OpenClaw agents, plugins, jobs and configuration are preserved. Existing Alberto agent entries with conflicting workspace paths stop the install unless `ALBERTO_ALLOW_OPENCLAW_AGENT_UPDATE=1` is set after review.
+The installer preserves the existing OpenClaw `main` agent completely. `main` remains Alberto's orchestrator, including its existing workspace, sessions, credentials and model. For the current production host, this preserves the existing `ollama/qwen3.5:9b` model on `main`.
+
+Alberto creates only `alberto-research` and `research-reader` using `openclaw agents add <agent-id> --workspace <workspace> --model <model> --non-interactive`. The default Alberto Research model is `openai/gpt-5.6-sol`; override with `ALBERTO_RESEARCH_MODEL` and `ALBERTO_READER_MODEL` if your installed OpenClaw model catalog requires a different OpenAI model id.
+
+Existing unrelated OpenClaw agents, plugins, jobs and configuration are preserved. Existing Alberto Research-owned agent entries with conflicting workspace paths stop the install for manual review.
 
 ## Paths
 
@@ -115,5 +119,5 @@ The installer does not delete non-Alberto OpenClaw configuration. Rollback shoul
 
 - OpenClaw CLI commands must match the installed version's current command surface.
 - `openclaw doctor --lint --severity-min error --json` must be available for strict health checks.
-- OpenClaw must permit `openclaw config set ... --merge` for agent and plugin entries.
+- OpenClaw must support `openclaw agents add --workspace --model --non-interactive`.
 - The NUC must have network/DNS access to Crossref, Semantic Scholar and Zotero when those workflows are enabled.

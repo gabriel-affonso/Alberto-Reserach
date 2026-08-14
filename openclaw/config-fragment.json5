@@ -1,15 +1,8 @@
 {
-  agents: {
-    entries: {
-      "alberto-main": {
-        workspace: "${ALBERTO_REPO}/openclaw/agents/alberto-main",
-      },
-      "alberto-research": {
-        workspace: "${ALBERTO_REPO}/openclaw/agents/alberto-research",
-      },
-      "research-reader": {
-        workspace: "${ALBERTO_REPO}/openclaw/agents/research-reader",
-      },
-    },
-  },
+  // Alberto no longer creates agents through internal OpenClaw config paths.
+  // Use:
+  //   openclaw agents add alberto-research --workspace ${ALBERTO_REPO}/openclaw/agents/alberto-research --non-interactive
+  //   openclaw agents add research-reader --workspace ${ALBERTO_REPO}/openclaw/agents/research-reader --non-interactive
+  //
+  // The existing OpenClaw `main` agent remains Alberto's orchestrator.
 }

@@ -14,7 +14,6 @@ def openclaw_template_dir() -> Path:
 def required_openclaw_paths() -> list[Path]:
     root = openclaw_template_dir()
     return [
-        root / "agents" / "alberto-main" / "AGENTS.md",
         root / "agents" / "alberto-research" / "AGENTS.md",
         root / "agents" / "research-reader" / "AGENTS.md",
         root / "policies" / "research-reader-sandbox.json",

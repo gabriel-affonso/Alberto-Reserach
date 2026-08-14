@@ -4,7 +4,7 @@ Alberto is organized as a small deterministic core plus agent-facing contracts.
 
 ## Modules
 
-- `alberto-main`: user-facing OpenClaw orchestrator. It routes research work to `alberto-research` and avoids direct handling of untrusted documents.
+- `main`: existing user-facing OpenClaw orchestrator. It routes research work to `alberto-research` and avoids direct handling of untrusted documents. Production deployment preserves its existing workspace, credentials, sessions and model.
 - `alberto-research`: owns project configuration, discovery, screening, readings, synthesis, citation chasing, digest generation, feedback and Zotero sync.
 - `research-reader`: isolated reader contract for hostile external text. It receives only the document payload and project question required for a reading task.
 

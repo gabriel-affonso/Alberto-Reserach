@@ -13,7 +13,7 @@ Alberto is a modular personal AI system intended to run under OpenClaw, with Cod
 
 ## Boundaries
 
-- `alberto-main` orchestrates and delegates. It should avoid directly processing untrusted papers.
+- OpenClaw's existing `main` agent orchestrates and delegates. It should avoid directly processing untrusted papers, and production deployment must not replace its workspace, credentials, sessions or model.
 - `alberto-research` owns research workflows, discovery, screening, synthesis, citation chasing, digests and Zotero synchronization.
 - `research-reader` is isolated. It must not receive finance data, broad filesystem access, email permissions, destructive tools, browser cookies or unrelated secrets.
 
