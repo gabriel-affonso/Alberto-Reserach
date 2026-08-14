@@ -38,7 +38,7 @@ def normalize_crossref_item(item: dict) -> PaperRecord:
         " ".join(part for part in (author.get("given"), author.get("family")) if part)
         for author in item.get("author", [])
     )
-    date_parts = item.get("issued", {}).get("date-parts", [[]])[0]
+    date_parts = _first_date_parts(item.get("issued"))
     year = int(date_parts[0]) if date_parts else None
     venue = (item.get("container-title") or [None])[0]
     access = AccessLevel.ABSTRACT_ONLY if item.get("abstract") else AccessLevel.METADATA_ONLY
@@ -55,3 +55,23 @@ def normalize_crossref_item(item: dict) -> PaperRecord:
         access_level=access,
         provenance={"provider": "crossref"},
     )
+
+
+def _first_date_parts(issued: dict | None) -> list[int]:
+    if not isinstance(issued, dict):
+        return []
+    date_parts = issued.get("date-parts")
+    if not date_parts or not isinstance(date_parts, list):
+        return []
+    first = date_parts[0] if date_parts else []
+    if not isinstance(first, list):
+        return []
+    cleaned: list[int] = []
+    for part in first:
+        if part is None:
+            break
+        try:
+            cleaned.append(int(part))
+        except (TypeError, ValueError):
+            break
+    return cleaned

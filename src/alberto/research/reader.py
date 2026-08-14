@@ -25,10 +25,10 @@ def build_abstract_only_reading(
         "research_question": research_question,
         "central_argument": "",
         "methodology": "",
-        "sources": [],
+        "sources": ["abstract"] if abstract else [],
         "major_findings": [],
         "concepts": [],
-        "relevance_to_project": f"Pending semantic reading for {title}.",
+        "relevance_to_project": f"Abstract/metadata reading by research-reader for {title}.",
         "connections": [],
         "disagreements": [],
         "references_to_follow": [],
@@ -37,5 +37,6 @@ def build_abstract_only_reading(
     }
     if abstract:
         payload["major_findings"] = [abstract[:500]]
+        payload["central_argument"] = abstract[:500]
     validate_reader_output(payload)
     return payload

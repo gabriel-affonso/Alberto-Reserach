@@ -343,3 +343,31 @@ class AlbertoRepository:
             """,
             (limit,),
         ).fetchall()
+
+    def recent_reportable_readings(self, project_id: str, limit: int = 10) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            """
+            SELECT
+              p.id AS paper_id,
+              p.title,
+              p.abstract,
+              p.publication_year,
+              r.structured_json,
+              r.confidence,
+              r.created_at AS reading_created_at
+            FROM readings r
+            JOIN papers p ON p.id = r.paper_id
+            WHERE r.project_id = ?
+              AND NOT EXISTS (
+                SELECT 1 FROM digest_items di WHERE di.paper_id = p.id
+              )
+              AND r.id = (
+                SELECT MAX(r2.id)
+                FROM readings r2
+                WHERE r2.project_id = r.project_id AND r2.paper_id = r.paper_id
+              )
+            ORDER BY r.confidence DESC, COALESCE(p.publication_year, 0) DESC, r.created_at DESC
+            LIMIT ?
+            """,
+            (project_id, limit),
+        ).fetchall()

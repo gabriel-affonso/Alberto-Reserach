@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -23,19 +24,41 @@ def generate_digest(
     limit: int = 10,
 ) -> tuple[int, str]:
     digest_date = digest_date or date.today().isoformat()
-    papers = repo.recent_reportable_papers(project_id, limit=limit)
-    stats: dict[str, Any] = {"new_reported_papers": len(papers)}
+    readings = repo.recent_reportable_readings(project_id, limit=limit)
+    papers = [] if readings else repo.recent_reportable_papers(project_id, limit=limit)
+    stats: dict[str, Any] = {"new_reported_papers": len(readings) if readings else len(papers)}
     lines = [
         f"# {project_name} Research Digest - {digest_date}",
         "",
         "## Run Statistics",
-        f"- New reportable papers: {len(papers)}",
+        f"- New reportable papers: {stats['new_reported_papers']}",
         "",
         "## Top Findings",
     ]
     items: list[dict[str, Any]] = []
-    if not papers:
+    if not readings and not papers:
         lines.append("- No new papers to report.")
+    for reading in readings:
+        paper_id = int(reading["paper_id"])
+        item_id = stable_digest_item_id(project_id, paper_id, "reading", digest_date)
+        structured = json.loads(reading["structured_json"])
+        title = reading["title"]
+        findings = structured.get("major_findings") or []
+        body = "\n".join(str(finding) for finding in findings[:3]) or structured.get("relevance_to_project") or "Structured reading persisted."
+        stable_ref = item_id
+        lines.append(f"- `{stable_ref}` {title}")
+        if body:
+            lines.append(f"  {body}")
+        items.append(
+            {
+                "id": item_id,
+                "paper_id": paper_id,
+                "item_type": "reading",
+                "title": title,
+                "body": body,
+                "stable_ref": stable_ref,
+            }
+        )
     for paper in papers:
         item_id = stable_digest_item_id(project_id, int(paper["id"]), "paper", digest_date)
         title = paper["title"]

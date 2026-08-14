@@ -165,3 +165,21 @@ Acceptance criteria:
 - Dry-run prints intended operations without creating venvs, installing packages, migrating databases, modifying files, creating agents or creating cron jobs.
 
 Completion note: deployment now uses the supported OpenClaw agent management CLI instead of internal config paths.
+
+## M13 - Academic Research Pipeline End-To-End
+
+Status: complete
+
+Acceptance criteria:
+
+- Crossref date normalization handles missing, partial and `None` date parts.
+- Discovery generates at most four deterministic composed queries per project.
+- Provider retry uses exponential backoff and honors `Retry-After` for retryable responses such as HTTP 429.
+- Workflow persists cheap pre-screen and semantic screening decisions.
+- Workflow uses `deep_reading_threshold` and `maximum_daily_deep_reads`.
+- `research-reader` contract output from title, abstract and bibliographic metadata is persisted in `readings`.
+- Runs record `read_count`.
+- Digests prefer persisted readings over raw paper metadata.
+- Provider/query errors are retained in run diagnostics without stopping valid results from other providers.
+
+Completion note: implemented with offline fixtures and regression tests; full-PDF reading remains a later milestone.
