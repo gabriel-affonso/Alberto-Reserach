@@ -7,10 +7,12 @@ Alberto is a modular personal AI system designed for OpenClaw. V1 implements Alb
 ```bash
 git clone <repository>
 cd alberto
+./scripts/preflight.sh
+./scripts/install.sh --dry-run
 ./scripts/install.sh
 ```
 
-The installer is idempotent. It creates a Python virtual environment, installs dependencies, initializes or migrates SQLite, prepares local runtime directories, copies OpenClaw templates when OpenClaw is available, registers supported automations when possible, and runs smoke tests.
+The installer is idempotent and safe for an existing OpenClaw host. It creates a Python virtual environment, installs dependencies, initializes or migrates SQLite, prepares local runtime directories, merges Alberto-specific OpenClaw entries only after backup/preflight, registers supported automations when possible, and runs smoke tests.
 
 ## Local Development
 

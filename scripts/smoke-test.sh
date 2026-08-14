@@ -6,6 +6,7 @@ TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/alberto-smoke.XXXXXX")"
 DB_PATH="$TMP_DIR/alberto.sqlite3"
 DIGEST_DIR="$TMP_DIR/digests"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
+trap 'rm -rf "$TMP_DIR"' EXIT
 
 if [[ -x "$ROOT_DIR/.venv/bin/python" ]]; then
   PYTHON_BIN="$ROOT_DIR/.venv/bin/python"

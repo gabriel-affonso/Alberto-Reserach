@@ -1,0 +1,112 @@
+from __future__ import annotations
+
+import os
+import subprocess
+from pathlib import Path
+
+
+FORBIDDEN_PATH_PATTERNS = (
+    "/" + "Users" + "/",
+    "/" + "Users" + "/" + "gabriel.affonso",
+    "Documents" + "/" + "Alberto",
+    "/" + "opt" + "/" + "homebrew",
+    "Home" + "brew",
+    "Library" + "/" + "Application Support",
+)
+
+
+def tracked_files() -> list[Path]:
+    result = subprocess.run(
+        ["git", "ls-files"],
+        cwd=Path.cwd(),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return [Path(line) for line in result.stdout.splitlines() if line]
+
+
+def test_no_hardcoded_development_paths_in_tracked_files() -> None:
+    offenders: list[str] = []
+    for path in tracked_files():
+        if not path.exists():
+            continue
+        if path.suffix in {".pyc", ".sqlite", ".db"}:
+            continue
+        text = path.read_text(encoding="utf-8")
+        for pattern in FORBIDDEN_PATH_PATTERNS:
+            if pattern in text:
+                offenders.append(f"{path}:{pattern}")
+    assert offenders == []
+
+
+def test_scripts_are_bash_syntax_clean() -> None:
+    for script in sorted(Path("scripts").glob("*.sh")):
+        subprocess.run(["bash", "-n", str(script)], cwd=Path.cwd(), check=True)
+
+
+def test_preflight_is_read_only_with_fake_openclaw(tmp_path: Path) -> None:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    openclaw = fake_bin / "openclaw"
+    openclaw.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--version" ]]; then echo "openclaw 9.9.9"; exit 0; fi
+if [[ "${1:-}" == "config" && "${2:-}" == "get" ]]; then echo '{}'; exit 0; fi
+if [[ "${1:-}" == "plugins" && "${2:-}" == "list" ]]; then echo '{"plugins":[{"id":"codex","enabled":true}]}'; exit 0; fi
+if [[ "${1:-}" == "cron" && "${2:-}" == "list" ]]; then echo '[]'; exit 0; fi
+if [[ "${1:-}" == "doctor" && "${2:-}" == "--help" ]]; then echo 'doctor help'; exit 0; fi
+if [[ "${1:-}" == "doctor" ]]; then echo '{"ok":true,"findings":[]}'; exit 0; fi
+echo "unexpected openclaw args: $*" >&2
+exit 1
+""",
+        encoding="utf-8",
+    )
+    openclaw.chmod(0o755)
+    state = tmp_path / "state"
+    openclaw_home = tmp_path / "openclaw"
+    state.mkdir()
+    openclaw_home.mkdir()
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+    env["XDG_STATE_HOME"] = str(state)
+    env["OPENCLAW_HOME"] = str(openclaw_home)
+    env["PYTHONPATH"] = str(Path.cwd() / "src")
+    result = subprocess.run(
+        ["scripts/preflight.sh", "--skip-network-check"],
+        cwd=Path.cwd(),
+        text=True,
+        capture_output=True,
+        env=env,
+        check=True,
+    )
+    assert "Preflight completed without blocking failures" in result.stdout
+    assert list(openclaw_home.iterdir()) == []
+
+
+def test_install_dry_run_reports_phases() -> None:
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(Path.cwd() / "src")
+    result = subprocess.run(
+        ["scripts/install.sh", "--dry-run"],
+        cwd=Path.cwd(),
+        text=True,
+        capture_output=True,
+        env=env,
+        check=True,
+    )
+    for phase in (
+        "preflight",
+        "backup",
+        "Python environment",
+        "database",
+        "OpenClaw configuration",
+        "agents",
+        "skills",
+        "Codex harness",
+        "automations",
+        "integration checks",
+        "smoke test",
+    ):
+        assert f"== {phase} ==" in result.stdout

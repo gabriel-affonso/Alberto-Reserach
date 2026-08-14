@@ -5,26 +5,28 @@
 ```bash
 git clone <repository>
 cd alberto
+./scripts/preflight.sh
+./scripts/install.sh --dry-run
 ./scripts/install.sh
 ```
 
-The installer is safe to run repeatedly. It performs preflight checks, creates `.venv`, installs Alberto, applies SQLite migrations, creates local runtime directories, copies OpenClaw templates when OpenClaw is available, and runs smoke tests.
+The installer is safe to run repeatedly. It performs preflight checks, backs up existing Alberto/OpenClaw state where present, creates `.venv`, installs Alberto, applies SQLite migrations, creates local runtime directories, merges Alberto-specific OpenClaw entries, registers cron jobs when safe, and runs smoke tests.
 
 ## Runtime Directories
 
-By default Alberto uses:
+By default Alberto uses XDG-compatible Linux paths:
 
-- `~/.alberto/alberto.sqlite3`
-- `~/.alberto/documents`
-- `~/.alberto/digests`
-- `~/.alberto/logs`
-- `~/.alberto/openclaw-backups`
+- `${XDG_STATE_HOME:-$HOME/.local/state}/alberto/alberto.sqlite3`
+- `${XDG_STATE_HOME:-$HOME/.local/state}/alberto/documents`
+- `${XDG_STATE_HOME:-$HOME/.local/state}/alberto/digests`
+- `${XDG_STATE_HOME:-$HOME/.local/state}/alberto/logs`
+- `${XDG_STATE_HOME:-$HOME/.local/state}/alberto/backups`
 
 Override with environment variables from `.env.example`.
 
 ## OpenClaw
 
-The installer probes `openclaw --help` and then tries version-aware supported commands. It does not silently overwrite existing OpenClaw configuration. Existing files are backed up before replacement.
+The installer probes `openclaw --version`, `openclaw doctor --lint --severity-min error --json`, `openclaw config get`, `openclaw plugins list --json` and `openclaw cron list` where available. It does not silently overwrite existing OpenClaw configuration. Alberto agent entries are merged by id, unrelated entries are preserved, and conflicting Alberto entries stop the install unless explicitly allowed by environment variable after review.
 
 If OpenClaw is not installed, Alberto still installs its Python package and database, and reports that OpenClaw registration was skipped.
 
@@ -37,3 +39,5 @@ If OpenClaw is not installed, Alberto still installs its Python package and data
 ```
 
 Network-dependent provider checks are intentionally not part of normal smoke tests.
+
+For a Mac-to-Linux NUC deployment with existing OpenClaw state, see `docs/PRODUCTION_DEPLOYMENT.md`.

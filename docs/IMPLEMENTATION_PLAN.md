@@ -135,3 +135,18 @@ Acceptance criteria:
 - Smoke test reports success.
 
 Completion note: full pytest suite passed locally (`15 passed`) and `scripts/smoke-test.sh` reports success.
+
+## M11 - Production Portability Audit
+
+Status: complete
+
+Acceptance criteria:
+
+- Repository hardcoded path scan is clean for user-specific and platform-specific package-manager paths.
+- Scripts use repository-relative, `$HOME`, XDG or environment-discovered paths.
+- `scripts/preflight.sh` is read-only and checks production host prerequisites.
+- `scripts/install.sh --dry-run` reports planned phases without making changes.
+- Existing unrelated OpenClaw configuration, agents, plugins and cron jobs are preserved.
+- Mac-to-Linux NUC deployment and rollback documentation exists.
+
+Completion note: production portability hardening was added after the V1 foundation.
