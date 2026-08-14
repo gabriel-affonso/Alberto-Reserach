@@ -85,6 +85,55 @@ exit 1
     assert list(openclaw_home.iterdir()) == []
 
 
+def run_writable_check(path: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["scripts/preflight.sh", "--check-writable-target", str(path)],
+        cwd=Path.cwd(),
+        text=True,
+        capture_output=True,
+    )
+
+
+def test_preflight_writable_existing_file(tmp_path: Path) -> None:
+    target = tmp_path / "openclaw.json"
+    target.write_text("{}", encoding="utf-8")
+    result = run_writable_check(target)
+    assert result.returncode == 0
+    assert f"[ok] Writable file: {target}" in result.stdout
+
+
+def test_preflight_non_writable_existing_file(tmp_path: Path) -> None:
+    target = tmp_path / "openclaw.json"
+    target.write_text("{}", encoding="utf-8")
+    target.chmod(0o400)
+    try:
+        result = run_writable_check(target)
+    finally:
+        target.chmod(0o600)
+    assert result.returncode == 1
+    assert f"[fail] Target file is not writable: {target}" in result.stderr
+
+
+def test_preflight_nonexistent_file_with_writable_parent(tmp_path: Path) -> None:
+    target = tmp_path / "openclaw.json"
+    result = run_writable_check(target)
+    assert result.returncode == 0
+    assert f"[ok] Writable target parent: {tmp_path}" in result.stdout
+
+
+def test_preflight_nonexistent_nested_path_uses_existing_parent(tmp_path: Path) -> None:
+    target = tmp_path / "missing" / "nested" / "openclaw.json"
+    result = run_writable_check(target)
+    assert result.returncode == 0
+    assert f"[ok] Writable target parent: {tmp_path}" in result.stdout
+
+
+def test_preflight_writable_existing_directory(tmp_path: Path) -> None:
+    result = run_writable_check(tmp_path)
+    assert result.returncode == 0
+    assert f"[ok] Writable directory: {tmp_path}" in result.stdout
+
+
 def test_install_dry_run_reports_phases() -> None:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(Path.cwd() / "src")

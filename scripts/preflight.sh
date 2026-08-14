@@ -9,12 +9,21 @@ OPENCLAW_CONFIG_PATH="${OPENCLAW_CONFIG_PATH:-$OPENCLAW_HOME/openclaw.json}"
 PROJECT_FILE="${ALBERTO_PROJECT_FILE:-$ROOT_DIR/projects/example-research.yaml}"
 ALLOW_MISSING_OPENCLAW=0
 SKIP_NETWORK_CHECK=0
+CHECK_WRITABLE_TARGET=""
 
-for arg in "$@"; do
-  case "$arg" in
-    --allow-missing-openclaw) ALLOW_MISSING_OPENCLAW=1 ;;
-    --skip-network-check) SKIP_NETWORK_CHECK=1 ;;
-    *) echo "Unknown argument: $arg" >&2; exit 2 ;;
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --allow-missing-openclaw) ALLOW_MISSING_OPENCLAW=1; shift ;;
+    --skip-network-check) SKIP_NETWORK_CHECK=1; shift ;;
+    --check-writable-target)
+      CHECK_WRITABLE_TARGET="${2:-}"
+      if [[ -z "$CHECK_WRITABLE_TARGET" ]]; then
+        echo "--check-writable-target requires a path" >&2
+        exit 2
+      fi
+      shift 2
+      ;;
+    *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 
@@ -68,18 +77,49 @@ if version < (3, 11):
 PY
 }
 
-check_writable_parent() {
+check_writable_target() {
   local path="$1"
-  local dir="$path"
-  while [[ ! -e "$dir" && "$dir" != "/" ]]; do
-    dir="$(dirname "$dir")"
+  if [[ -f "$path" ]]; then
+    if [[ -w "$path" ]]; then
+      ok "Writable file: $path"
+    else
+      fail "Target file is not writable: $path"
+    fi
+    return
+  fi
+  if [[ -d "$path" ]]; then
+    if [[ -w "$path" ]]; then
+      ok "Writable directory: $path"
+    else
+      fail "Target directory is not writable: $path"
+    fi
+    return
+  fi
+  if [[ -e "$path" ]]; then
+    if [[ -w "$path" ]]; then
+      ok "Writable existing path: $path"
+    else
+      fail "Existing path is not writable: $path"
+    fi
+    return
+  fi
+
+  local parent
+  parent="$(dirname "$path")"
+  while [[ ! -e "$parent" && "$parent" != "/" ]]; do
+    parent="$(dirname "$parent")"
   done
-  if [[ -d "$dir" && -w "$dir" ]]; then
-    ok "Writable target parent for $path: $dir"
+  if [[ -d "$parent" && -w "$parent" ]]; then
+    ok "Writable target parent: $parent"
   else
-    fail "Target parent is not writable for $path: $dir"
+    fail "Target parent is not writable for $path: $parent"
   fi
 }
+
+if [[ -n "$CHECK_WRITABLE_TARGET" ]]; then
+  check_writable_target "$CHECK_WRITABLE_TARGET"
+  exit "$STATUS"
+fi
 
 openclaw_version() {
   openclaw --version 2>/dev/null || openclaw version 2>/dev/null || echo "unknown"
@@ -137,10 +177,10 @@ else
 fi
 
 section "Writable target directories"
-check_writable_parent "$ALBERTO_HOME"
-check_writable_parent "$ALBERTO_DB"
-check_writable_parent "$OPENCLAW_HOME"
-check_writable_parent "$OPENCLAW_CONFIG_PATH"
+check_writable_target "$ALBERTO_HOME"
+check_writable_target "$ALBERTO_DB"
+check_writable_target "$OPENCLAW_HOME"
+check_writable_target "$OPENCLAW_CONFIG_PATH"
 
 section "Environment"
 echo "ALBERTO_HOME=$ALBERTO_HOME"
