@@ -1,0 +1,36 @@
+id: alberto-research-example
+name: Alberto Research Example
+research_question: How do modular AI agent systems safely delegate untrusted research reading?
+priority_topics:
+  - AI agent orchestration
+  - sandboxed document reading
+  - prompt injection defenses
+priority_authors:
+  - Simon Willison
+languages:
+  - en
+date_ranges:
+  start: 2020-01-01
+  end: 2026-12-31
+inclusion_terms:
+  - agent
+  - sandbox
+  - prompt injection
+exclusion_terms:
+  - finance
+discovery_limits:
+  crossref: 5
+  semantic_scholar: 5
+screening_threshold: 0.55
+deep_reading_threshold: 0.8
+maximum_daily_deep_reads: 3
+citation_chasing:
+  enabled: true
+  max_depth: 1
+  max_references_per_paper: 5
+digest:
+  enabled: true
+  delivery_time: "08:00"
+  max_items: 10
+  save_local: true
+timezone: Europe/Lisbon

@@ -1,0 +1,189 @@
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version TEXT PRIMARY KEY,
+  applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS projects (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  research_question TEXT NOT NULL,
+  config_path TEXT,
+  config_json TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS papers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  doi TEXT,
+  normalized_doi TEXT,
+  title TEXT NOT NULL,
+  normalized_title TEXT NOT NULL,
+  abstract TEXT,
+  venue TEXT,
+  publication_year INTEGER,
+  publication_date TEXT,
+  url TEXT,
+  external_ids_json TEXT NOT NULL DEFAULT '{}',
+  access_level TEXT NOT NULL DEFAULT 'METADATA_ONLY'
+    CHECK (access_level IN ('FULL_TEXT','PARTIAL_TEXT','ABSTRACT_ONLY','METADATA_ONLY')),
+  lifecycle_state TEXT NOT NULL DEFAULT 'DISCOVERED'
+    CHECK (lifecycle_state IN ('DISCOVERED','SCREENED','QUEUED','READ','REJECTED','REPORTED')),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(normalized_doi)
+);
+
+CREATE INDEX IF NOT EXISTS idx_papers_title_year
+  ON papers(normalized_title, publication_year);
+
+CREATE TABLE IF NOT EXISTS authors (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  normalized_name TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS paper_authors (
+  paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+  author_id INTEGER NOT NULL REFERENCES authors(id) ON DELETE CASCADE,
+  author_order INTEGER NOT NULL,
+  PRIMARY KEY (paper_id, author_id)
+);
+
+CREATE TABLE IF NOT EXISTS searches (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  query TEXT NOT NULL,
+  parameters_json TEXT NOT NULL DEFAULT '{}',
+  dry_run INTEGER NOT NULL DEFAULT 0,
+  started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  finished_at TEXT,
+  status TEXT NOT NULL DEFAULT 'RUNNING'
+    CHECK (status IN ('RUNNING','SUCCEEDED','FAILED','SKIPPED')),
+  error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS discoveries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  search_id INTEGER NOT NULL REFERENCES searches(id) ON DELETE CASCADE,
+  paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  provider_record_id TEXT,
+  rank INTEGER,
+  provenance_json TEXT NOT NULL DEFAULT '{}',
+  discovered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(search_id, paper_id)
+);
+
+CREATE TABLE IF NOT EXISTS screenings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+  score REAL NOT NULL,
+  decision TEXT NOT NULL CHECK (decision IN ('REJECT','MAYBE','QUEUE','DEEP_READ')),
+  rationale TEXT NOT NULL,
+  model TEXT,
+  provenance_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS documents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+  access_level TEXT NOT NULL
+    CHECK (access_level IN ('FULL_TEXT','PARTIAL_TEXT','ABSTRACT_ONLY','METADATA_ONLY')),
+  source_type TEXT NOT NULL CHECK (source_type IN ('PDF','HTML','ABSTRACT','METADATA','NOTE')),
+  uri TEXT,
+  local_path TEXT,
+  checksum_sha256 TEXT,
+  pages INTEGER,
+  provenance_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS readings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+  document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+  access_level TEXT NOT NULL
+    CHECK (access_level IN ('FULL_TEXT','PARTIAL_TEXT','ABSTRACT_ONLY','METADATA_ONLY')),
+  reader_agent TEXT NOT NULL DEFAULT 'research-reader',
+  structured_json TEXT NOT NULL,
+  confidence REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS citations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  citing_paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+  cited_paper_id INTEGER REFERENCES papers(id) ON DELETE SET NULL,
+  cited_doi TEXT,
+  cited_title TEXT,
+  provenance_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS relationships (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  source_paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+  target_paper_id INTEGER REFERENCES papers(id) ON DELETE SET NULL,
+  relationship_type TEXT NOT NULL CHECK (relationship_type IN (
+    'CONVERGES_WITH','CONTRADICTS','EXTENDS','METHODOLOGICAL_DIFFERENCE',
+    'HISTORIOGRAPHIC_SHIFT','RESEARCH_GAP'
+  )),
+  description TEXT NOT NULL,
+  provenance_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS digests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  run_id TEXT,
+  digest_date TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body_markdown TEXT NOT NULL,
+  stats_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS digest_items (
+  id TEXT PRIMARY KEY,
+  digest_id INTEGER NOT NULL REFERENCES digests(id) ON DELETE CASCADE,
+  paper_id INTEGER REFERENCES papers(id) ON DELETE SET NULL,
+  item_type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  stable_ref TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  digest_item_id TEXT REFERENCES digest_items(id) ON DELETE SET NULL,
+  paper_id INTEGER REFERENCES papers(id) ON DELETE SET NULL,
+  feedback_type TEXT NOT NULL CHECK (feedback_type IN (
+    'VERY_IMPORTANT','USEFUL','IRRELEVANT','READ_PERSONALLY','INVESTIGATE_REFERENCES'
+  )),
+  note TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS runs (
+  id TEXT PRIMARY KEY,
+  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+  workflow TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('RUNNING','SUCCEEDED','FAILED','SKIPPED')),
+  providers_queried_json TEXT NOT NULL DEFAULT '[]',
+  candidate_count INTEGER NOT NULL DEFAULT 0,
+  screened_count INTEGER NOT NULL DEFAULT 0,
+  read_count INTEGER NOT NULL DEFAULT 0,
+  digest_id INTEGER REFERENCES digests(id) ON DELETE SET NULL,
+  errors_json TEXT NOT NULL DEFAULT '[]',
+  started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  finished_at TEXT
+);

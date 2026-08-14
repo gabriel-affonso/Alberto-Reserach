@@ -1,0 +1,22 @@
+{
+  "crossref": {
+    "DOI": "10.1234/Example.DOI",
+    "title": ["Prompt Injection and Agent Sandboxing"],
+    "author": [{"given": "Ada", "family": "Lovelace"}],
+    "issued": {"date-parts": [[2025, 4, 2]]},
+    "container-title": ["Journal of Agent Safety"],
+    "URL": "https://doi.org/10.1234/example.doi",
+    "abstract": "A paper about hostile text and sandboxed agents."
+  },
+  "semantic_scholar": {
+    "paperId": "abc123",
+    "title": "Prompt Injection and Agent Sandboxing",
+    "abstract": "A paper about hostile text and sandboxed agents.",
+    "authors": [{"name": "Ada Lovelace"}],
+    "venue": "Journal of Agent Safety",
+    "year": 2025,
+    "publicationDate": "2025-04-02",
+    "url": "https://semanticscholar.org/paper/abc123",
+    "externalIds": {"DOI": "10.1234/example.doi", "CorpusId": "987"}
+  }
+}

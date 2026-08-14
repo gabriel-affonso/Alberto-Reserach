@@ -1,0 +1,14 @@
+{
+  "routes": [
+    {
+      "from": "alberto-main",
+      "when": "research discovery, screening, synthesis, digest, citation chasing, Zotero sync",
+      "to": "alberto-research"
+    },
+    {
+      "from": "alberto-research",
+      "when": "external PDF, abstract, webpage or hostile document reading",
+      "to": "research-reader"
+    }
+  ]
+}

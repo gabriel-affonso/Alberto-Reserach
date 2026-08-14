@@ -1,0 +1,20 @@
+{
+  plugins: {
+    entries: {
+      codex: {
+        enabled: true,
+        config: {
+          discovery: {
+            enabled: true,
+            timeoutMs: 2500,
+          },
+          appServer: {
+            mode: "guardian",
+            homeScope: "agent",
+          },
+          codexDynamicToolsLoading: "searchable",
+        },
+      },
+    },
+  },
+}

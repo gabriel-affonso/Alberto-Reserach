@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "alberto"
+version = "0.1.0"
+description = "Modular personal AI system with Alberto Research for OpenClaw."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Alberto Project" }]
+dependencies = [
+  "PyYAML>=6.0.1",
+  "requests>=2.31.0",
+  "jsonschema>=4.22.0"
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8.2.0"
+]
+
+[project.scripts]
+alberto = "alberto.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"

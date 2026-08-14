@@ -1,0 +1,15 @@
+{
+  agents: {
+    entries: {
+      "alberto-main": {
+        workspace: "${ALBERTO_REPO}/openclaw/agents/alberto-main",
+      },
+      "alberto-research": {
+        workspace: "${ALBERTO_REPO}/openclaw/agents/alberto-research",
+      },
+      "research-reader": {
+        workspace: "${ALBERTO_REPO}/openclaw/agents/research-reader",
+      },
+    },
+  },
+}

@@ -1,0 +1,31 @@
+{
+  "agent": "research-reader",
+  "principle": "least_privilege",
+  "filesystem": {
+    "workspace_access": "read_only_payloads_only",
+    "deny": [
+      "~/.ssh",
+      "~/.codex",
+      "~/.openclaw",
+      "~/.zotero",
+      "~/Library/Application Support",
+      "data/finance",
+      ".env"
+    ]
+  },
+  "tools": {
+    "deny": [
+      "email.send",
+      "shell.destructive",
+      "browser.cookies",
+      "secrets.read",
+      "finance.*"
+    ]
+  },
+  "network": {
+    "default": "deny",
+    "allowed_for": [
+      "explicitly provided document URLs when configured by alberto-research"
+    ]
+  }
+}
