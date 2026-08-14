@@ -231,16 +231,24 @@ class AlbertoRepository:
             )
             return int(cur.lastrowid)
 
-    def add_reading(self, project_id: str, paper_id: int, structured: dict[str, Any]) -> int:
+    def add_reading(
+        self,
+        project_id: str,
+        paper_id: int,
+        structured: dict[str, Any],
+        *,
+        document_id: int | None = None,
+    ) -> int:
         with self.conn:
             cur = self.conn.execute(
                 """
-                INSERT INTO readings(project_id, paper_id, access_level, structured_json, confidence)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO readings(project_id, paper_id, document_id, access_level, structured_json, confidence)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     project_id,
                     paper_id,
+                    document_id,
                     structured["access_level"],
                     dumps(structured),
                     float(structured["confidence"]),
@@ -249,6 +257,47 @@ class AlbertoRepository:
             self.conn.execute(
                 "UPDATE papers SET lifecycle_state='READ', updated_at=? WHERE id=?",
                 (utc_now(), paper_id),
+            )
+            return int(cur.lastrowid)
+
+    def add_document(
+        self,
+        *,
+        paper_id: int,
+        access_level: AccessLevel,
+        source_type: str,
+        uri: str | None = None,
+        local_path: str | None = None,
+        checksum_sha256: str | None = None,
+        pages: int | None = None,
+        provenance: dict[str, Any] | None = None,
+    ) -> int:
+        if checksum_sha256:
+            existing = self.conn.execute(
+                "SELECT id FROM documents WHERE checksum_sha256=?",
+                (checksum_sha256,),
+            ).fetchone()
+            if existing:
+                return int(existing["id"])
+        with self.conn:
+            cur = self.conn.execute(
+                """
+                INSERT INTO documents(
+                  paper_id, access_level, source_type, uri, local_path,
+                  checksum_sha256, pages, provenance_json
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    paper_id,
+                    access_level.value,
+                    source_type,
+                    uri,
+                    local_path,
+                    checksum_sha256,
+                    pages,
+                    dumps(provenance or {}),
+                ),
             )
             return int(cur.lastrowid)
 
@@ -337,12 +386,16 @@ class AlbertoRepository:
             FROM papers p
             WHERE p.lifecycle_state IN ('DISCOVERED','SCREENED','QUEUED','READ')
               AND NOT EXISTS (
-                SELECT 1 FROM digest_items di WHERE di.paper_id = p.id
+                SELECT 1
+                FROM digest_items di
+                JOIN digests d ON d.id = di.digest_id
+                WHERE di.paper_id = p.id
+                  AND d.project_id = ?
               )
             ORDER BY COALESCE(p.publication_year, 0) DESC, p.created_at DESC
             LIMIT ?
             """,
-            (limit,),
+            (project_id, limit),
         ).fetchall()
 
     def recent_reportable_readings(self, project_id: str, limit: int = 10) -> list[sqlite3.Row]:
@@ -360,7 +413,12 @@ class AlbertoRepository:
             JOIN papers p ON p.id = r.paper_id
             WHERE r.project_id = ?
               AND NOT EXISTS (
-                SELECT 1 FROM digest_items di WHERE di.paper_id = p.id
+                SELECT 1
+                FROM digest_items di
+                JOIN digests d ON d.id = di.digest_id
+                WHERE di.paper_id = p.id
+                  AND d.project_id = r.project_id
+                  AND di.created_at >= r.created_at
               )
               AND r.id = (
                 SELECT MAX(r2.id)

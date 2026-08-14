@@ -49,6 +49,35 @@ class ZoteroAdapter:
                 return item
         return None
 
+    def find_item_by_doi(self, doi: str) -> dict[str, Any] | None:
+        return self.find_by_doi(doi)
+
+    def children(self, item_key: str) -> list[dict[str, Any]]:
+        return self._request("GET", f"/items/{item_key}/children", params={"format": "json"})
+
+    def pdf_attachments(self, item_key: str) -> list[dict[str, Any]]:
+        attachments = []
+        for child in self.children(item_key):
+            data = child.get("data", {})
+            content_type = (data.get("contentType") or "").lower()
+            title = (data.get("title") or "").lower()
+            filename = (data.get("filename") or "").lower()
+            if data.get("itemType") == "attachment" and (
+                content_type == "application/pdf" or filename.endswith(".pdf") or title.endswith(".pdf")
+            ):
+                attachments.append(child)
+        return attachments
+
+    def attachment_fulltext(self, attachment_key: str) -> str | None:
+        payload = self._request("GET", f"/items/{attachment_key}/fulltext")
+        if isinstance(payload, dict):
+            text = payload.get("content") or payload.get("text")
+            return text if isinstance(text, str) and text.strip() else None
+        return None
+
+    def download_attachment_file(self, attachment_key: str) -> tuple[bytes, str | None]:
+        return self._request_bytes("GET", f"/items/{attachment_key}/file")
+
     def create_item(self, item: dict[str, Any]) -> Any:
         return self._request("POST", "/items", json=[item])
 
@@ -85,3 +114,13 @@ class ZoteroAdapter:
         if response.content:
             return response.json()
         return None
+
+    def _request_bytes(self, method: str, suffix: str, **kwargs) -> tuple[bytes, str | None]:
+        try:
+            import requests
+        except ModuleNotFoundError as exc:  # pragma: no cover
+            raise RuntimeError("requests is required for Zotero API calls") from exc
+        headers = kwargs.pop("headers", self._headers())
+        response = requests.request(method, self._library_url(suffix), headers=headers, timeout=60, **kwargs)
+        response.raise_for_status()
+        return response.content, response.headers.get("Content-Type")

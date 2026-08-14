@@ -8,10 +8,11 @@ from typing import Callable, Iterable
 from alberto.db.connection import connect
 from alberto.db.migrations import apply_migrations
 from alberto.db.repositories import AlbertoRepository
-from alberto.enums import LifecycleState
+from alberto.enums import AccessLevel, LifecycleState
 from alberto.research.config import load_project_config
 from alberto.research.dedupe import dedupe_records
 from alberto.research.digest import generate_digest, save_digest
+from alberto.research.fulltext import FullTextResolver, PersistedDocument, ResolvedDocument
 from alberto.research.models import PaperRecord
 from alberto.research.openclaw import invoke_openclaw_json
 from alberto.research.providers import CrossrefProvider, Provider, SemanticScholarProvider
@@ -78,7 +79,8 @@ def run_research_workflow(
     dry_run: bool = False,
     providers: Iterable[Provider] | None = None,
     semantic_screener: Callable[[dict, PaperRecord], ScreeningResult] | None = None,
-    reader: Callable[[dict, PaperRecord], dict] | None = None,
+    reader: Callable[..., dict] | None = None,
+    full_text_resolver: FullTextResolver | None = None,
 ) -> str:
     config = load_project_config(project_path)
     conn = connect(db_path)
@@ -94,6 +96,8 @@ def run_research_workflow(
     errors: list[str] = []
     semantic_screener = semantic_screener or semantic_screen_candidate
     reader = reader or default_research_reader
+    full_text_resolver = full_text_resolver or FullTextResolver()
+    document_storage_dir = Path(db_path).expanduser().parent / "documents" if db_path else None
     try:
         records = []
         processed_paper_ids: set[int] = set()
@@ -178,8 +182,20 @@ def run_research_workflow(
         eligible.sort(key=lambda candidate: candidate.semantic.score, reverse=True)
         for candidate in eligible[:deep_read_limit]:
             try:
-                structured = reader(config, candidate.record)
-                repo.add_reading(config["id"], candidate.paper_id, structured)
+                persisted_document = full_text_resolver.resolve(
+                    repo,
+                    paper_id=candidate.paper_id,
+                    record=candidate.record,
+                    config=config,
+                    storage_dir=document_storage_dir,
+                )
+                structured = invoke_reader(reader, config, candidate.record, persisted_document.resolved)
+                repo.add_reading(
+                    config["id"],
+                    candidate.paper_id,
+                    structured,
+                    document_id=persisted_document.document_id,
+                )
                 read_count += 1
             except Exception as exc:
                 errors.append(f"reader:{candidate.record.title}:{exc}")
@@ -248,7 +264,19 @@ def _overlap_ratio(haystack: set[str], needles: set[str]) -> float:
     return len(haystack & needles) / len(needles)
 
 
-def default_research_reader(config: dict, record: PaperRecord) -> dict:
+def invoke_reader(
+    reader: Callable[..., dict],
+    config: dict,
+    record: PaperRecord,
+    document: ResolvedDocument,
+) -> dict:
+    try:
+        return reader(config, record, document)
+    except TypeError:
+        return reader(config, record)
+
+
+def default_research_reader(config: dict, record: PaperRecord, document: ResolvedDocument | None = None) -> dict:
     bibliography = {
         "title": record.title,
         "doi": record.doi,
@@ -260,12 +288,23 @@ def default_research_reader(config: dict, record: PaperRecord) -> dict:
         "external_ids": record.external_ids,
         "reader_agent": "research-reader",
     }
+    document = document or ResolvedDocument(
+        access_level=AccessLevel.ABSTRACT_ONLY if record.abstract else AccessLevel.METADATA_ONLY,
+        source_type="ABSTRACT" if record.abstract else "METADATA",
+        text=record.abstract or f"Title: {record.title}",
+        provenance={"resolver": "legacy_reader_fallback"},
+    )
     payload = invoke_openclaw_json(
         ["openclaw", "agent", "--agent", "research-reader", "--timeout", "300"],
-        build_reader_prompt(config, record, bibliography),
+        build_reader_prompt(config, record, bibliography, document),
         timeout_seconds=300,
     )
     validate_reader_output(payload)
+    if payload.get("access_level") != document.access_level.value:
+        raise ValueError(
+            f"research-reader returned access_level {payload.get('access_level')} "
+            f"for {document.access_level.value} document"
+        )
     return payload
 
 
@@ -308,17 +347,31 @@ def build_semantic_screening_prompt(config: dict, record: PaperRecord) -> str:
     )
 
 
-def build_reader_prompt(config: dict, record: PaperRecord, bibliography: dict) -> str:
+def build_reader_prompt(config: dict, record: PaperRecord, bibliography: dict, document: ResolvedDocument) -> str:
+    if document.access_level.value == "FULL_TEXT":
+        document_instruction = (
+            "The document text below is FULL_TEXT extracted from an accessible source. "
+            "Distinguish claims supported by full text from inference. Never fabricate quotations or page numbers."
+        )
+    elif document.access_level.value == "ABSTRACT_ONLY":
+        document_instruction = "Only abstract text is available. Do not represent this as full-paper reading."
+    else:
+        document_instruction = "Only metadata is available. Do not infer full-paper claims."
     return "\n".join(
         [
             READER_CONTRACT_PROMPT,
             "",
             "Return ONLY JSON matching Alberto's existing reader schema.",
+            f"Set access_level exactly to {document.access_level.value}.",
+            document_instruction,
             "",
             f"Research question: {config['research_question']}",
             f"Bibliographic metadata: {bibliography}",
             f"Title: {record.title}",
-            f"Abstract: {record.abstract or ''}",
+            f"Document provenance: {document.provenance}",
+            "",
+            "Document text:",
+            document.text,
         ]
     )
 

@@ -13,7 +13,8 @@ authors = [{ name = "Alberto Project" }]
 dependencies = [
   "PyYAML>=6.0.1",
   "requests>=2.31.0",
-  "jsonschema>=4.22.0"
+  "jsonschema>=4.22.0",
+  "pypdf>=4.2.0"
 ]
 
 [project.optional-dependencies]

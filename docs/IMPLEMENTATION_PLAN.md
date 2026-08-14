@@ -183,3 +183,22 @@ Acceptance criteria:
 - Provider/query errors are retained in run diagnostics without stopping valid results from other providers.
 
 Completion note: implemented with offline fixtures and regression tests; full-PDF reading remains a later milestone.
+
+## M14 - Full-Text Acquisition
+
+Status: complete
+
+Acceptance criteria:
+
+- FullTextResolver runs between DEEP_READ ranking and research-reader invocation.
+- Resolution order is Zotero, Unpaywall, provider PDF URL, abstract fallback, metadata fallback.
+- Zotero remains optional and supports DOI lookup, PDF attachment enumeration, indexed full text and permitted file download.
+- Unpaywall uses configured email and only legal OA locations.
+- Downloaded PDF responses are content-type/size/signature validated.
+- Documents are stored outside the git repository and persisted through the existing `documents` table.
+- Duplicate document checksums are not persisted repeatedly.
+- PDF text extraction preserves page markers.
+- FULL_TEXT, ABSTRACT_ONLY and METADATA_ONLY access levels are accurately passed to research-reader.
+- Full-text acquisition failures fall back without aborting the research run.
+
+Completion note: implemented with offline resolver tests; OCR remains intentionally out of scope until normal PDF extraction proves insufficient.
