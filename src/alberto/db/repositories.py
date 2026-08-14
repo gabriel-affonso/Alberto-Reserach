@@ -218,15 +218,16 @@ class AlbertoRepository:
         score: float,
         decision: str,
         rationale: str,
+        model: str | None = None,
         provenance: dict[str, Any] | None = None,
     ) -> int:
         with self.conn:
             cur = self.conn.execute(
                 """
-                INSERT INTO screenings(project_id, paper_id, score, decision, rationale, provenance_json)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO screenings(project_id, paper_id, score, decision, rationale, model, provenance_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (project_id, paper_id, score, decision, rationale, dumps(provenance or {})),
+                (project_id, paper_id, score, decision, rationale, model, dumps(provenance or {})),
             )
             return int(cur.lastrowid)
 

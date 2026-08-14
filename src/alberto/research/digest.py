@@ -36,6 +36,12 @@ def generate_digest(
         "## Top Findings",
     ]
     items: list[dict[str, Any]] = []
+    changed: list[str] = []
+    connections: list[str] = []
+    contradictions: list[str] = []
+    gaps: list[str] = []
+    human_reading: list[str] = []
+    references: list[str] = []
     if not readings and not papers:
         lines.append("- No new papers to report.")
     for reading in readings:
@@ -45,6 +51,17 @@ def generate_digest(
         title = reading["title"]
         findings = structured.get("major_findings") or []
         body = "\n".join(str(finding) for finding in findings[:3]) or structured.get("relevance_to_project") or "Structured reading persisted."
+        changed.extend(str(finding) for finding in findings[:2])
+        connections.extend(str(item) for item in structured.get("connections", [])[:2])
+        contradictions.extend(str(item) for item in structured.get("disagreements", [])[:2])
+        references.extend(str(item) for item in structured.get("references_to_follow", [])[:3])
+        if structured.get("human_reading_recommended"):
+            human_reading.append(title)
+        relevance = structured.get("relevance_to_project")
+        if relevance and not findings:
+            changed.append(str(relevance))
+        if structured.get("confidence", 1) < 0.5:
+            gaps.append(f"Low-confidence reading needs review: {title}")
         stable_ref = item_id
         lines.append(f"- `{stable_ref}` {title}")
         if body:
@@ -79,25 +96,25 @@ def generate_digest(
         [
             "",
             "## What Changed In Our Understanding",
-            "- Awaiting synthesized readings.",
+            *_section_items(changed, "Awaiting synthesized readings."),
             "",
             "## Important Connections",
-            "- No persisted relationships were promoted into this digest yet.",
+            *_section_items(connections, "No persisted relationships were promoted into this digest yet."),
             "",
             "## Contradictions",
-            "- No contradictions identified in deterministic digest generation.",
+            *_section_items(contradictions, "No contradictions identified in persisted readings."),
             "",
             "## Research Gaps",
-            "- Review queued papers for gaps after reader analysis.",
+            *_section_items(gaps, "Review queued papers for gaps after reader analysis."),
             "",
             "## Rabbit Holes",
             "- Follow references from high-confidence readings.",
             "",
             "## Recommended Human Reading",
-            "- Prioritize digest items marked by feedback as READ_PERSONALLY.",
+            *_section_items(human_reading, "Prioritize digest items marked by feedback as READ_PERSONALLY."),
             "",
             "## References Worth Pursuing",
-            "- See reader `references_to_follow` fields as they accumulate.",
+            *_section_items(references, "See reader `references_to_follow` fields as they accumulate."),
             "",
             "## Questions Requiring User Judgment",
             "- Which findings should become very important for future prioritization?",
@@ -122,3 +139,9 @@ def save_digest(body: str, output_dir: str | Path, project_id: str, digest_id: i
     path = directory / f"{project_id}-digest-{digest_id}.md"
     path.write_text(body, encoding="utf-8")
     return path
+
+
+def _section_items(values: list[str], fallback: str) -> list[str]:
+    if not values:
+        return [f"- {fallback}"]
+    return [f"- {value}" for value in values]

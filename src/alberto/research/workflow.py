@@ -13,10 +13,13 @@ from alberto.research.config import load_project_config
 from alberto.research.dedupe import dedupe_records
 from alberto.research.digest import generate_digest, save_digest
 from alberto.research.models import PaperRecord
+from alberto.research.openclaw import invoke_openclaw_json
 from alberto.research.providers import CrossrefProvider, Provider, SemanticScholarProvider
-from alberto.research.reader import build_abstract_only_reading
+from alberto.research.reader import READER_CONTRACT_PROMPT
+from alberto.research.schemas import validate_reader_output
 
 LOG = logging.getLogger("alberto.research.workflow")
+SEMANTIC_SCREENING_MODEL = "openai/gpt-5.6-sol"
 
 
 def default_providers() -> list[Provider]:
@@ -61,12 +64,20 @@ class ScreeningResult:
     rationale: str
 
 
+@dataclass(frozen=True)
+class ScreenedCandidate:
+    paper_id: int
+    record: PaperRecord
+    semantic: ScreeningResult
+
+
 def run_research_workflow(
     *,
     project_path: str | Path,
     db_path: str | Path | None = None,
     dry_run: bool = False,
     providers: Iterable[Provider] | None = None,
+    semantic_screener: Callable[[dict, PaperRecord], ScreeningResult] | None = None,
     reader: Callable[[dict, PaperRecord], dict] | None = None,
 ) -> str:
     config = load_project_config(project_path)
@@ -81,10 +92,12 @@ def run_research_workflow(
     screened_count = 0
     read_count = 0
     errors: list[str] = []
+    semantic_screener = semantic_screener or semantic_screen_candidate
     reader = reader or default_research_reader
     try:
         records = []
         processed_paper_ids: set[int] = set()
+        screened_candidates: list[ScreenedCandidate] = []
         deep_read_limit = int(config.get("maximum_daily_deep_reads", 0))
         for provider in providers:
             limit = int(config.get("discovery_limits", {}).get(provider.name, 10))
@@ -123,7 +136,7 @@ def run_research_workflow(
                         pre_score,
                         pre_decision,
                         "Deterministic keyword pre-screen",
-                        {"stage": "cheap_pre_screen", "provider": provider.name},
+                        provenance={"stage": "cheap_pre_screen", "provider": provider.name},
                     )
 
                     if pre_decision == "REJECT":
@@ -131,28 +144,47 @@ def run_research_workflow(
                         screened_count += 1
                         continue
 
-                    semantic = semantic_screen_candidate(config, record)
+                    try:
+                        semantic = semantic_screener(config, record)
+                    except Exception as exc:
+                        errors.append(f"semantic_screen:{record.title}:{exc}")
+                        repo.set_paper_state(paper_id, LifecycleState.SCREENED)
+                        screened_count += 1
+                        continue
                     repo.add_screening(
                         config["id"],
                         paper_id,
                         semantic.score,
                         semantic.decision,
                         semantic.rationale,
-                        {"stage": "semantic_screen", "agent": "alberto-research"},
+                        model=SEMANTIC_SCREENING_MODEL,
+                        provenance={"stage": "semantic_screen", "model": SEMANTIC_SCREENING_MODEL},
                     )
                     screened_count += 1
-
-                    if semantic.decision == "DEEP_READ" and read_count < deep_read_limit:
-                        structured = reader(config, record)
-                        repo.add_reading(config["id"], paper_id, structured)
-                        read_count += 1
-                        continue
-                    if semantic.decision in {"DEEP_READ", "QUEUE"}:
-                        repo.set_paper_state(paper_id, LifecycleState.QUEUED)
-                    elif semantic.decision == "REJECT":
+                    screened_candidates.append(ScreenedCandidate(paper_id, record, semantic))
+                    if semantic.decision == "REJECT":
                         repo.set_paper_state(paper_id, LifecycleState.REJECTED)
-                    else:
+                    elif semantic.decision == "MAYBE":
                         repo.set_paper_state(paper_id, LifecycleState.SCREENED)
+                    else:
+                        repo.set_paper_state(paper_id, LifecycleState.QUEUED)
+
+        eligible = [
+            candidate
+            for candidate in screened_candidates
+            if candidate.semantic.decision == "DEEP_READ"
+            and candidate.semantic.score >= float(config["deep_reading_threshold"])
+        ]
+        eligible.sort(key=lambda candidate: candidate.semantic.score, reverse=True)
+        for candidate in eligible[:deep_read_limit]:
+            try:
+                structured = reader(config, candidate.record)
+                repo.add_reading(config["id"], candidate.paper_id, structured)
+                read_count += 1
+            except Exception as exc:
+                errors.append(f"reader:{candidate.record.title}:{exc}")
+                repo.set_paper_state(candidate.paper_id, LifecycleState.QUEUED)
+                continue
         candidate_count = len(dedupe_records(records))
         repo.finish_run(
             run_id,
@@ -193,38 +225,12 @@ def deterministic_screening_score(config: dict, title: str, abstract: str | None
 
 
 def semantic_screen_candidate(config: dict, record: PaperRecord) -> ScreeningResult:
-    question_terms = _tokenize(config["research_question"])
-    priority_terms = set().union(*(_tokenize(term) for term in config.get("priority_topics", []))) if config.get("priority_topics") else set()
-    inclusion_terms = set().union(*(_tokenize(term) for term in config.get("inclusion_terms", []))) if config.get("inclusion_terms") else set()
-    exclusion_terms = set().union(*(_tokenize(term) for term in config.get("exclusion_terms", []))) if config.get("exclusion_terms") else set()
-    haystack_terms = _tokenize(f"{record.title} {record.abstract or ''}")
-
-    question_overlap = _overlap_ratio(haystack_terms, question_terms)
-    priority_overlap = _overlap_ratio(haystack_terms, priority_terms)
-    inclusion_overlap = _overlap_ratio(haystack_terms, inclusion_terms)
-    score = 0.15 + (question_overlap * 0.35) + (priority_overlap * 0.25) + (inclusion_overlap * 0.25)
-    if record.abstract:
-        score += 0.05
-    if haystack_terms & exclusion_terms:
-        score -= 0.4
-    score = max(0.0, min(1.0, score))
-
-    deep_threshold = float(config["deep_reading_threshold"])
-    screen_threshold = float(config["screening_threshold"])
-    if score >= deep_threshold:
-        decision = "DEEP_READ"
-    elif score >= screen_threshold:
-        decision = "QUEUE"
-    elif score >= 0.3:
-        decision = "MAYBE"
-    else:
-        decision = "REJECT"
-    rationale = (
-        "Semantic screen from title/abstract metadata: "
-        f"question_overlap={question_overlap:.2f}, priority_overlap={priority_overlap:.2f}, "
-        f"inclusion_overlap={inclusion_overlap:.2f}."
+    payload = invoke_openclaw_json(
+        ["openclaw", "agent", "exec", "--model", SEMANTIC_SCREENING_MODEL],
+        build_semantic_screening_prompt(config, record),
+        timeout_seconds=120,
     )
-    return ScreeningResult(score=score, decision=decision, rationale=rationale)
+    return validate_semantic_screening_output(payload)
 
 
 def _tokenize(value: object) -> set[str]:
@@ -254,11 +260,66 @@ def default_research_reader(config: dict, record: PaperRecord) -> dict:
         "external_ids": record.external_ids,
         "reader_agent": "research-reader",
     }
-    return build_abstract_only_reading(
-        title=record.title,
-        abstract=record.abstract,
-        research_question=config["research_question"],
-        bibliographic_information=bibliography,
+    payload = invoke_openclaw_json(
+        ["openclaw", "agent", "--agent", "research-reader", "--timeout", "300"],
+        build_reader_prompt(config, record, bibliography),
+        timeout_seconds=300,
+    )
+    validate_reader_output(payload)
+    return payload
+
+
+def validate_semantic_screening_output(payload: dict) -> ScreeningResult:
+    try:
+        score = float(payload["score"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("Semantic screening output must include numeric score") from exc
+    decision = payload.get("decision")
+    rationale = payload.get("rationale")
+    if not 0 <= score <= 1:
+        raise ValueError("Semantic screening score must be between 0 and 1")
+    if decision not in {"REJECT", "MAYBE", "QUEUE", "DEEP_READ"}:
+        raise ValueError("Semantic screening decision is invalid")
+    if not isinstance(rationale, str) or not rationale.strip():
+        raise ValueError("Semantic screening rationale must be non-empty")
+    return ScreeningResult(score=score, decision=decision, rationale=rationale.strip())
+
+
+def build_semantic_screening_prompt(config: dict, record: PaperRecord) -> str:
+    return "\n".join(
+        [
+            "Evaluate this academic paper for the Alberto Research project.",
+            "Return ONLY JSON exactly like:",
+            '{"score":0.0,"decision":"REJECT|MAYBE|QUEUE|DEEP_READ","rationale":"..."}',
+            "",
+            f"Research question: {config['research_question']}",
+            f"Priority topics: {config.get('priority_topics', [])}",
+            f"Priority authors: {config.get('priority_authors', [])}",
+            "",
+            f"Paper title: {record.title}",
+            f"Abstract: {record.abstract or ''}",
+            f"Authors: {list(record.authors)}",
+            f"Venue: {record.venue or ''}",
+            f"Year: {record.publication_year or ''}",
+            "",
+            "Score must be semantic relevance from 0 to 1, independent of lexical overlap.",
+            "Use decision REJECT, MAYBE, QUEUE, or DEEP_READ.",
+        ]
+    )
+
+
+def build_reader_prompt(config: dict, record: PaperRecord, bibliography: dict) -> str:
+    return "\n".join(
+        [
+            READER_CONTRACT_PROMPT,
+            "",
+            "Return ONLY JSON matching Alberto's existing reader schema.",
+            "",
+            f"Research question: {config['research_question']}",
+            f"Bibliographic metadata: {bibliography}",
+            f"Title: {record.title}",
+            f"Abstract: {record.abstract or ''}",
+        ]
     )
 
 
