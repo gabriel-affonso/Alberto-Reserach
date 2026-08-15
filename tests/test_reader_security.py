@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from alberto.enums import AccessLevel
-from alberto.research.reader import build_abstract_only_reading
+from alberto.research.reader import build_abstract_only_reading, normalize_reader_output
 from alberto.research.schemas import SchemaValidationError, validate_reader_output
 
 
@@ -54,3 +54,36 @@ def test_prompt_injection_text_stays_data() -> None:
     assert reading["access_level"] == AccessLevel.ABSTRACT_ONLY.value
     assert "commands" not in reading
     assert "email" not in reading
+
+
+def test_reader_output_normalization_replaces_nulls_without_inventing_claims() -> None:
+    payload = normalize_reader_output(
+        {
+            "access_level": "FULL_TEXT",
+            "bibliographic_information": None,
+            "research_question": None,
+            "central_argument": None,
+            "methodology": None,
+            "sources": None,
+            "major_findings": None,
+            "concepts": None,
+            "relevance_to_project": None,
+            "connections": None,
+            "disagreements": None,
+            "references_to_follow": None,
+            "human_reading_recommended": None,
+            "confidence": 1.4,
+            "page_provenance": None,
+        },
+        access_level=AccessLevel.METADATA_ONLY,
+        bibliographic_information={"title": "Paper"},
+        research_question="Question?",
+    )
+
+    validate_reader_output(payload)
+    assert payload["access_level"] == AccessLevel.METADATA_ONLY.value
+    assert payload["bibliographic_information"] == {"title": "Paper"}
+    assert payload["research_question"] == "Question?"
+    assert payload["central_argument"] == ""
+    assert payload["major_findings"] == []
+    assert payload["confidence"] == 1.0

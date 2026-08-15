@@ -252,6 +252,51 @@ def test_full_text_reader_invocation(monkeypatch) -> None:
     assert "--- PAGE 1 ---" in calls[0][1]
 
 
+def test_metadata_only_reader_output_is_normalized(monkeypatch) -> None:
+    calls = []
+
+    def fake_invoke(command, prompt, *, timeout_seconds):
+        calls.append((command, prompt, timeout_seconds))
+        return {
+            "access_level": "FULL_TEXT",
+            "bibliographic_information": {"title": "Wrong"},
+            "research_question": "Wrong?",
+            "central_argument": None,
+            "methodology": None,
+            "sources": None,
+            "major_findings": None,
+            "concepts": None,
+            "relevance_to_project": None,
+            "connections": None,
+            "disagreements": None,
+            "references_to_follow": None,
+            "human_reading_recommended": None,
+            "confidence": None,
+            "page_provenance": None,
+        }
+
+    monkeypatch.setattr("alberto.research.workflow.invoke_openclaw_json", fake_invoke)
+    payload = default_research_reader(
+        {"research_question": "Question?"},
+        PaperRecord(title="Metadata Paper", doi="10.1/metadata", publication_year=2026),
+        ResolvedDocument(
+            access_level=AccessLevel.METADATA_ONLY,
+            source_type="METADATA",
+            text="Title: Metadata Paper",
+            provenance={"resolver": "metadata_fallback"},
+        ),
+    )
+
+    assert payload["access_level"] == "METADATA_ONLY"
+    assert payload["bibliographic_information"]["title"] == "Metadata Paper"
+    assert payload["research_question"] == "Question?"
+    assert payload["central_argument"] == ""
+    assert payload["major_findings"] == []
+    assert payload["confidence"] == 0.0
+    assert "Use this exact JSON structure" in calls[0][1]
+    assert "Do not use null for any field" in calls[0][1]
+
+
 def test_fallback_abstract_only(tmp_path: Path, repo: AlbertoRepository) -> None:
     record = PaperRecord(title="Paper", abstract="Only abstract")
     paper_id = repo.upsert_paper(record)

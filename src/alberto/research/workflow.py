@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from dataclasses import dataclass
@@ -16,7 +17,7 @@ from alberto.research.fulltext import FullTextResolver, PersistedDocument, Resol
 from alberto.research.models import PaperRecord
 from alberto.research.openclaw import invoke_openclaw_json
 from alberto.research.providers import CrossrefProvider, Provider, SemanticScholarProvider
-from alberto.research.reader import READER_CONTRACT_PROMPT
+from alberto.research.reader import READER_CONTRACT_PROMPT, build_reader_output_template, normalize_reader_output
 from alberto.research.schemas import validate_reader_output
 
 LOG = logging.getLogger("alberto.research.workflow")
@@ -299,12 +300,13 @@ def default_research_reader(config: dict, record: PaperRecord, document: Resolve
         build_reader_prompt(config, record, bibliography, document),
         timeout_seconds=300,
     )
+    payload = normalize_reader_output(
+        payload,
+        access_level=document.access_level,
+        bibliographic_information=bibliography,
+        research_question=config["research_question"],
+    )
     validate_reader_output(payload)
-    if payload.get("access_level") != document.access_level.value:
-        raise ValueError(
-            f"research-reader returned access_level {payload.get('access_level')} "
-            f"for {document.access_level.value} document"
-        )
     return payload
 
 
@@ -357,21 +359,43 @@ def build_reader_prompt(config: dict, record: PaperRecord, bibliography: dict, d
         document_instruction = "Only abstract text is available. Do not represent this as full-paper reading."
     else:
         document_instruction = "Only metadata is available. Do not infer full-paper claims."
+    template = build_reader_output_template(
+        access_level=document.access_level,
+        bibliographic_information=bibliography,
+        research_question=config["research_question"],
+    )
     return "\n".join(
         [
             READER_CONTRACT_PROMPT,
             "",
-            "Return ONLY JSON matching Alberto's existing reader schema.",
+            "Return ONLY valid JSON matching Alberto's existing reader schema.",
+            "Use this exact JSON structure and keep every field present:",
+            json.dumps(template, indent=2, sort_keys=True),
+            "",
+            "Do not use null for any field. Use empty strings, empty arrays, false, or 0.0 when evidence is absent.",
+            "Copy access_level, bibliographic_information, and research_question exactly from the template.",
             f"Set access_level exactly to {document.access_level.value}.",
             document_instruction,
+            "For METADATA_ONLY, keep central_argument, methodology, sources, major_findings, concepts, "
+            "connections, disagreements, and references_to_follow empty unless directly supported by metadata.",
+            "For ABSTRACT_ONLY, use only the abstract and bibliographic metadata.",
+            "For FULL_TEXT, use only the extracted document text and bibliographic metadata.",
             "",
             f"Research question: {config['research_question']}",
-            f"Bibliographic metadata: {bibliography}",
             f"Title: {record.title}",
-            f"Document provenance: {document.provenance}",
+            f"DOI: {record.doi or 'Not available'}",
+            f"Authors: {list(record.authors)}",
+            f"Venue: {record.venue or 'Not available'}",
+            f"Publication year: {record.publication_year or 'Not available'}",
+            f"Publication date: {record.publication_date or 'Not available'}",
+            f"URL: {record.url or 'Not available'}",
+            f"Bibliographic metadata: {json.dumps(bibliography, sort_keys=True)}",
+            f"Document provenance: {json.dumps(document.provenance, sort_keys=True, default=str)}",
             "",
             "Document text:",
             document.text,
+            "",
+            "Return only the JSON object, with no markdown fence and no explanatory text.",
         ]
     )
 
