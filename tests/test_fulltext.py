@@ -11,8 +11,12 @@ from alberto.db.repositories import AlbertoRepository
 from alberto.enums import AccessLevel
 from alberto.research.fulltext import (
     AbstractFallbackResolver,
+    COREResolver,
+    DOAJResolver,
+    EuropePMCResolver,
     FullTextResolver,
     MetadataFallbackResolver,
+    OpenAlexResolver,
     ProviderUrlResolver,
     ResolutionError,
     ResolvedDocument,
@@ -20,6 +24,7 @@ from alberto.research.fulltext import (
     ZoteroFullTextResolver,
     download_pdf_url,
     extract_pdf_text,
+    ordered_resolvers,
     validate_pdf_response,
 )
 from alberto.research.models import DiscoveryResult, PaperRecord
@@ -154,6 +159,170 @@ def test_unpaywall_no_oa_version_available(monkeypatch, tmp_path: Path) -> None:
         )
         is None
     )
+
+
+def test_openalex_oa_location_found(monkeypatch, tmp_path: Path) -> None:
+    calls = []
+
+    class Response:
+        def __init__(self, *, payload=None, content=b"", content_type="application/pdf", status_code=200):
+            self._payload = payload
+            self.content = content
+            self.headers = {"Content-Type": content_type}
+            self.status_code = status_code
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        if "api.openalex.org" in url:
+            return Response(
+                payload={
+                    "id": "https://openalex.org/W1",
+                    "open_access": {"is_oa": True},
+                    "best_oa_location": {"pdf_url": "https://example.test/openalex.pdf"},
+                }
+            )
+        return Response(content=PDF_BYTES)
+
+    monkeypatch.setattr("requests.get", fake_get)
+    monkeypatch.setattr("alberto.research.fulltext.extract_pdf_text", lambda path: SimpleNamespace(text="--- PAGE 1 ---\nOpenAlex text with enough words", pages=1))
+    resolved = OpenAlexResolver().resolve(
+        PaperRecord(title="Paper", doi="10.1371/journal.pone.0234567"),
+        config={"fulltext": {"user_agent": "AlbertoResearch/0.1 test"}},
+        storage_dir=tmp_path,
+    )
+    assert resolved is not None
+    assert resolved.access_level == AccessLevel.FULL_TEXT
+    assert resolved.provenance["resolver"] == "openalex"
+    assert calls == [
+        "https://api.openalex.org/works/doi:10.1371/journal.pone.0234567",
+        "https://example.test/openalex.pdf",
+    ]
+
+
+def test_openalex_404_returns_none(monkeypatch, tmp_path: Path) -> None:
+    class Response:
+        status_code = 404
+
+        def raise_for_status(self):
+            raise AssertionError("404 should be handled without raising")
+
+    monkeypatch.setattr("requests.get", lambda *args, **kwargs: Response())
+    assert OpenAlexResolver().resolve(PaperRecord(title="Missing", doi="10.9999/xyz123"), config={}, storage_dir=tmp_path) is None
+
+
+def test_core_download_url_found(monkeypatch, tmp_path: Path) -> None:
+    calls = []
+
+    class Response:
+        status_code = 200
+
+        def __init__(self, *, payload=None, content=b""):
+            self._payload = payload
+            self.content = content
+            self.headers = {"Content-Type": "application/pdf"}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, **kwargs):
+        calls.append((url, kwargs))
+        if "search/works" in url:
+            return Response(payload={"results": [{"id": "core-1", "downloadUrl": "https://example.test/core.pdf"}]})
+        return Response(content=PDF_BYTES)
+
+    monkeypatch.setattr("requests.get", fake_get)
+    monkeypatch.setattr("alberto.research.fulltext.extract_pdf_text", lambda path: SimpleNamespace(text="--- PAGE 1 ---\nCORE text with enough words", pages=1))
+    resolved = COREResolver().resolve(
+        PaperRecord(title="Paper", doi="10.1/core"),
+        config={"fulltext": {"core_api_key": "secret-key"}},
+        storage_dir=tmp_path,
+    )
+    assert resolved is not None
+    assert resolved.provenance["resolver"] == "core"
+    assert calls[0][1]["params"]["q"] == 'doi:"10.1/core"'
+    assert calls[0][1]["headers"]["Authorization"] == "Bearer secret-key"
+    assert calls[1][0] == "https://example.test/core.pdf"
+
+
+def test_doaj_pdf_link_found(monkeypatch, tmp_path: Path) -> None:
+    class Response:
+        status_code = 200
+
+        def __init__(self, *, payload=None, content=b""):
+            self._payload = payload
+            self.content = content
+            self.headers = {"Content-Type": "application/pdf"}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, **kwargs):
+        if "doaj.org" in url:
+            return Response(payload={"results": [{"id": "article-1", "bibjson": {"link": [{"type": "fulltext", "url": "https://example.test/doaj.pdf"}]}}]})
+        return Response(content=PDF_BYTES)
+
+    monkeypatch.setattr("requests.get", fake_get)
+    monkeypatch.setattr("alberto.research.fulltext.extract_pdf_text", lambda path: SimpleNamespace(text="--- PAGE 1 ---\nDOAJ text with enough words", pages=1))
+    resolved = DOAJResolver().resolve(PaperRecord(title="Paper", doi="10.1/doaj"), config={}, storage_dir=tmp_path)
+    assert resolved is not None
+    assert resolved.uri == "https://example.test/doaj.pdf"
+    assert resolved.provenance["resolver"] == "doaj"
+
+
+def test_europepmc_pdf_link_found(monkeypatch, tmp_path: Path) -> None:
+    class Response:
+        status_code = 200
+
+        def __init__(self, *, payload=None, content=b""):
+            self._payload = payload
+            self.content = content
+            self.headers = {"Content-Type": "application/pdf"}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, **kwargs):
+        if "europepmc/webservices" in url:
+            return Response(
+                payload={
+                    "resultList": {
+                        "result": [
+                            {
+                                "pmcid": "PMC1",
+                                "fullTextUrlList": {
+                                    "fullTextUrl": [
+                                        {"documentStyle": "html", "availability": "Free", "url": "https://example.test/article"},
+                                        {"documentStyle": "pdf", "url": "https://example.test/europepmc.pdf"},
+                                    ]
+                                },
+                            }
+                        ]
+                    }
+                }
+            )
+        return Response(content=PDF_BYTES)
+
+    monkeypatch.setattr("requests.get", fake_get)
+    monkeypatch.setattr("alberto.research.fulltext.extract_pdf_text", lambda path: SimpleNamespace(text="--- PAGE 1 ---\nEurope PMC text with enough words", pages=1))
+    resolved = EuropePMCResolver().resolve(PaperRecord(title="Paper", doi="10.1/europepmc"), config={}, storage_dir=tmp_path)
+    assert resolved is not None
+    assert resolved.uri == "https://example.test/europepmc.pdf"
+    assert resolved.provenance["pmcid"] == "PMC1"
 
 
 def test_invalid_non_pdf_response_rejected() -> None:
@@ -332,6 +501,63 @@ class FailingResolver:
 
     def resolve(self, record: PaperRecord, *, config: dict, storage_dir: Path):
         raise RuntimeError("resolver unavailable")
+
+
+class StaticPdfResolver:
+    name = "static_pdf"
+
+    def __init__(self, path: Path):
+        self.path = path
+        self.calls = 0
+
+    def resolve(self, record: PaperRecord, *, config: dict, storage_dir: Path):
+        self.calls += 1
+        return ResolvedDocument(
+            access_level=AccessLevel.FULL_TEXT,
+            source_type="PDF",
+            text="--- PAGE 1 ---\nStatic resolver text",
+            uri="https://example.test/static.pdf",
+            local_path=self.path,
+            checksum_sha256="checksum",
+            pages=1,
+            provenance={"resolver": self.name},
+        )
+
+
+def test_resolver_order_can_be_configured_from_fulltext_block() -> None:
+    resolvers = [ProviderUrlResolver(), OpenAlexResolver(), UnpaywallResolver()]
+    ordered = [resolver.name for resolver in FullTextResolver(resolvers).resolvers]
+    assert ordered == ["provider_url", "openalex", "unpaywall"]
+    configured = [
+        resolver.name
+        for resolver in ordered_resolvers(
+            resolvers,
+            {"fulltext": {"resolver_order": ["openalex", "unpaywall"]}},
+        )
+    ]
+    assert configured == ["openalex", "unpaywall", "provider_url"]
+
+
+def test_fulltext_cache_reuses_downloaded_pdf(monkeypatch, tmp_path: Path, repo: AlbertoRepository) -> None:
+    pdf_path = tmp_path / "cached.pdf"
+    pdf_path.write_bytes(PDF_BYTES)
+    static_resolver = StaticPdfResolver(pdf_path)
+    monkeypatch.setattr("alberto.research.fulltext.extract_pdf_text", lambda path: SimpleNamespace(text="--- PAGE 1 ---\nCached PDF text with enough words", pages=1))
+    config = {"fulltext": {"cache_dir": "cache"}}
+    record = PaperRecord(title="Paper", doi="10.1/cached")
+    paper_id = repo.upsert_paper(record)
+
+    first = FullTextResolver([static_resolver, MetadataFallbackResolver()]).resolve(
+        repo, paper_id=paper_id, record=record, config=config, storage_dir=tmp_path
+    )
+    second = FullTextResolver([FailingResolver(), MetadataFallbackResolver()]).resolve(
+        repo, paper_id=paper_id, record=record, config=config, storage_dir=tmp_path
+    )
+
+    assert first.resolved.provenance["resolver"] == "static_pdf"
+    assert static_resolver.calls == 1
+    assert second.resolved.provenance["resolver"] == "fulltext_cache"
+    assert second.resolved.local_path == pdf_path
 
 
 def test_acquisition_failure_does_not_abort_run(tmp_path: Path) -> None:

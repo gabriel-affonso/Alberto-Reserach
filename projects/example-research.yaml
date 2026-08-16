@@ -24,6 +24,21 @@ discovery_limits:
 screening_threshold: 0.55
 deep_reading_threshold: 0.8
 maximum_daily_deep_reads: 3
+fulltext:
+  enable_scihub: false
+  enable_annas_archive: false
+  unpaywall_email: "research@example.com"
+  core_api_key: ""
+  resolver_order:
+    - zotero
+    - unpaywall
+    - openalex
+    - core
+    - doaj
+    - europepmc
+    - provider_url
+  download_timeout: 30
+  cache_dir: ".cache/fulltext"
 citation_chasing:
   enabled: true
   max_depth: 1

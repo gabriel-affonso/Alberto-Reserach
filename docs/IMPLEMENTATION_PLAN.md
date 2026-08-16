@@ -191,9 +191,12 @@ Status: complete
 Acceptance criteria:
 
 - FullTextResolver runs between DEEP_READ ranking and research-reader invocation.
-- Resolution order is Zotero, Unpaywall, provider PDF URL, abstract fallback, metadata fallback.
+- Resolution order is configurable and defaults to Zotero, Unpaywall, OpenAlex, CORE, DOAJ, Europe PMC, provider PDF URL, abstract fallback, metadata fallback.
 - Zotero remains optional and supports DOI lookup, PDF attachment enumeration, indexed full text and permitted file download.
 - Unpaywall uses configured email and only legal OA locations.
+- OpenAlex, CORE, DOAJ and Europe PMC use documented APIs and only accept validated PDF responses.
+- Sci-Hub and Anna's Archive remain unsupported by the default acquisition path.
+- DOI full-text resolution caches downloaded PDF paths to avoid repeated API lookups.
 - Downloaded PDF responses are content-type/size/signature validated.
 - Documents are stored outside the git repository and persisted through the existing `documents` table.
 - Duplicate document checksums are not persisted repeatedly.
@@ -201,4 +204,4 @@ Acceptance criteria:
 - FULL_TEXT, ABSTRACT_ONLY and METADATA_ONLY access levels are accurately passed to research-reader.
 - Full-text acquisition failures fall back without aborting the research run.
 
-Completion note: implemented with offline resolver tests; OCR remains intentionally out of scope until normal PDF extraction proves insufficient.
+Completion note: implemented with offline resolver tests, legal OA resolvers and DOI cache; OCR remains intentionally out of scope until normal PDF extraction proves insufficient.
