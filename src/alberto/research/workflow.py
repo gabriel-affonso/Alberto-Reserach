@@ -243,7 +243,7 @@ def deterministic_screening_score(config: dict, title: str, abstract: str | None
 
 def semantic_screen_candidate(config: dict, record: PaperRecord) -> ScreeningResult:
     payload = invoke_openclaw_json(
-        ["openclaw", "agent", "--agent", "alberto-research"],
+        ["/home/alberto/.openclaw/bin/openclaw", "agent", "--agent", "alberto-research"],
         build_semantic_screening_prompt(config, record),
         timeout_seconds=120,
     )
@@ -296,7 +296,7 @@ def default_research_reader(config: dict, record: PaperRecord, document: Resolve
         provenance={"resolver": "legacy_reader_fallback"},
     )
     payload = invoke_openclaw_json(
-        ["openclaw", "agent", "--agent", "research-reader", "--timeout", "300"],
+        ["/home/alberto/.openclaw/bin/openclaw", "agent", "--agent", "research-reader", "--timeout", "300"],
         build_reader_prompt(config, record, bibliography, document),
         timeout_seconds=300,
     )

@@ -50,7 +50,7 @@ discovery_limits:
   semantic_scholar: 10
 
 screening_threshold: 0.50
-deep_reading_threshold: 0.75
+deep_reading_threshold: 0.1
 maximum_daily_deep_reads: 5
 
 citation_chasing:
@@ -67,3 +67,6 @@ digest:
 timezone: Europe/Lisbon
 fulltext:
   enable_scihub: true
+
+fulltext:
+  enable_scihub_mcp: true
