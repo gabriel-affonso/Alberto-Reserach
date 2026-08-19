@@ -202,7 +202,7 @@ def run_research_workflow(
         eligible = [
             candidate
             for candidate in screened_candidates
-            if candidate.semantic.decision == "DEEP_READ"
+            if candidate.semantic.decision in {"DEEP_READ", "QUEUE"}
             and candidate.semantic.score >= float(config["deep_reading_threshold"])
         ]
         eligible.sort(key=lambda candidate: candidate.semantic.score, reverse=True)

@@ -99,6 +99,10 @@ def fake_semantic(config: dict, record: PaperRecord) -> ScreeningResult:
     return ScreeningResult(score=0.91, decision="DEEP_READ", rationale=f"Relevant: {record.title}")
 
 
+def queue_semantic(config: dict, record: PaperRecord) -> ScreeningResult:
+    return ScreeningResult(score=0.91, decision="QUEUE", rationale=f"Queue for reading: {record.title}")
+
+
 def fake_reader(config: dict, record: PaperRecord) -> dict:
     return {
         "access_level": "ABSTRACT_ONLY",
@@ -262,6 +266,25 @@ def test_deep_reading_limit_and_reader_persistence(tmp_path: Path) -> None:
     assert "research-reader" in readings[0]["structured_json"]
     assert all(row["decision"] == "DEEP_READ" for row in screening_rows)
     assert all("semantic_screen" in row["provenance_json"] for row in screening_rows)
+    conn.close()
+
+
+def test_queue_decision_above_threshold_is_read(tmp_path: Path) -> None:
+    project_path = write_project(tmp_path)
+    db_path = tmp_path / "alberto.sqlite3"
+    run_id = run_research_workflow(
+        project_path=project_path,
+        db_path=db_path,
+        providers=[FixtureProvider()],
+        semantic_screener=queue_semantic,
+        reader=fake_reader,
+    )
+    conn = connect(db_path)
+    run = conn.execute("SELECT read_count, screened_count FROM runs WHERE id=?", (run_id,)).fetchone()
+    reading_count = conn.execute("SELECT COUNT(*) AS count FROM readings").fetchone()["count"]
+    assert run["read_count"] == 1
+    assert run["screened_count"] == 1
+    assert reading_count == 1
     conn.close()
 
 
