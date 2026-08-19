@@ -1,5 +1,7 @@
 from __future__ import annotations
-
+import logging
+logger = logging.getLogger(__name__)
+from alberto.research.scihub_mcp import MCPSciHubResolver
 import hashlib
 import json
 import os
@@ -58,7 +60,10 @@ class PersistedDocument:
 
 class FullTextResolver:
     def __init__(self, resolvers: list[Resolver] | None = None):
+        from alberto.research.providers.scihub import SciHubResolver
         self.resolvers = resolvers or [
+            SciHubResolver(),
+            MCPSciHubResolver(),
             ZoteroFullTextResolver(),
             UnpaywallResolver(),
             OpenAlexResolver(),
@@ -70,6 +75,7 @@ class FullTextResolver:
             MetadataFallbackResolver(),
         ]
 
+        logger.info(f"FullTextResolver initialized with: {[r.__class__.__name__ for r in self.resolvers]}")
     def resolve(
         self,
         repo: AlbertoRepository,

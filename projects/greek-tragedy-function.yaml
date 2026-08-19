@@ -1,0 +1,69 @@
+id: greek-tragedy-function
+name: Functions of Greek Tragedy in Classical Athens
+
+research_question: How did Greek tragedy function as a religious, civic-political, and pedagogical institution in Classical Athens?
+
+priority_topics:
+  - religious and ritual functions of Greek tragedy
+  - civic and political functions of tragedy in Classical Athens
+  - pedagogical and social functions of tragedy
+  - Great Dionysia and dramatic festivals
+  - tragedy, polis, citizenship, and civic ideology
+  - tragic audience and collective experience
+
+priority_authors:
+  - Simon Goldhill
+  - Richard Seaford
+  - Froma Zeitlin
+  - John J. Winkler
+  - Eric Csapo
+  - William J. Slater
+  - Alan H. Sommerstein
+
+languages:
+  - en
+
+date_ranges:
+  start: 1950-01-01
+  end: 2026-12-31
+
+inclusion_terms:
+  - Greek tragedy
+  - Athens
+  - Dionysia
+  - polis
+  - ritual
+  - civic
+  - political
+  - religion
+  - audience
+  - pedagogy
+
+exclusion_terms:
+  - psychotherapy
+  - film
+  - television
+  - Shakespeare
+
+discovery_limits:
+  crossref: 10
+  semantic_scholar: 10
+
+screening_threshold: 0.50
+deep_reading_threshold: 0.75
+maximum_daily_deep_reads: 5
+
+citation_chasing:
+  enabled: true
+  max_depth: 1
+  max_references_per_paper: 8
+
+digest:
+  enabled: true
+  delivery_time: "08:00"
+  max_items: 10
+  save_local: true
+
+timezone: Europe/Lisbon
+fulltext:
+  enable_scihub: true
