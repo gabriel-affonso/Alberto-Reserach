@@ -33,5 +33,5 @@ class SciHubResolver(Resolver):
             logger.error("Módulo scihub_integration não encontrado. Verifique se o arquivo existe.")
             return None
         except Exception as e:
-            logger.error(f"SciHub falhou para {record.doi}: {e}")
+            logger.error(f"SciHub falhou para {record.doi}: {type(e).__name__}: {e}")
             return None

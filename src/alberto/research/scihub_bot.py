@@ -7,7 +7,6 @@ import requests
 import PyPDF2
 import io
 
-# Tenta carregar variáveis de ambiente de .env (se python-dotenv estiver instalado)
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -26,7 +25,6 @@ class SciHubBotClient:
     def __init__(self):
         self.client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
         self.bot_entity = None
-        self._handler_registered = False
 
     async def start(self):
         await self.client.start()
@@ -38,8 +36,8 @@ class SciHubBotClient:
 
     async def request_article(self, query: str, timeout: int = 60) -> bytes:
         """
-        Envia uma consulta ao bot e retorna o conteúdo do PDF.
-        Aguarda a mensagem que contém o documento ou URL, ignorando mensagens de texto.
+        Envia consulta ao bot e retorna o PDF.
+        Captura mensagens de falha e retorna erro rapidamente.
         """
         if not self.client.is_connected():
             await self.start()
@@ -47,57 +45,64 @@ class SciHubBotClient:
         await self.client.send_message(self.bot_entity, query)
         logger.info(f"Consulta enviada: {query}")
 
-        # Define condição para mensagem útil: documento (PDF) ou texto com URL
-        def is_article_message(msg) -> bool:
-            return isinstance(msg.media, MessageMediaDocument) or ('http' in (msg.text or ''))
-
-        # Aguarda a mensagem correta (ignorando mensagens como "I have this article!")
-        response = await self._wait_for_response(timeout, condition=is_article_message)
+        # Espera por qualquer mensagem do bot que seja documento, URL ou falha
+        response = await self._wait_for_response(timeout)
         if response is None:
-            raise TimeoutError(f"Sem resposta útil do bot após {timeout}s para: {query}")
+            raise TimeoutError(f"Bot não respondeu em {timeout}s para: {query}")
 
-        # Processa a mensagem
+        # Se for documento, baixa
         if isinstance(response.media, MessageMediaDocument):
             logger.info("Documento recebido, baixando...")
-            pdf_bytes = await self.client.download_media(response, file=bytes)
-            return pdf_bytes
-        else:
-            # Tenta extrair URL do texto
-            text = response.text or ''
-            if 'http' in text:
-                url = text.strip().split()[-1]
-                logger.info(f"Baixando PDF da URL: {url}")
-                return self._download_pdf(url)
-            else:
-                # Caso inesperado (não deveria ocorrer devido ao filtro)
-                raise ValueError(f"Resposta inesperada: {text[:200]}")
+            return await self.client.download_media(response, file=bytes)
 
-    async def _wait_for_response(self, timeout: int, condition=None):
-        """
-        Espera por uma mensagem do bot que satisfaça a condição.
-        A condição recebe o objeto Message e retorna True se for a desejada.
-        Se nenhuma condição for fornecida, aceita qualquer mensagem.
-        """
-        if condition is None:
-            condition = lambda msg: True
+        text = response.text or ''
+        # Se contém URL, baixa o PDF
+        if 'http' in text:
+            url = text.strip().split()[-1]
+            logger.info(f"Baixando PDF da URL: {url}")
+            return self._download_pdf(url)
 
+        # Se for mensagem de falha, levanta erro
+        raise ValueError(f"Bot respondeu com falha: {text[:200]}")
+
+    async def _wait_for_response(self, timeout: int):
+        """
+        Aguarda uma mensagem que seja documento, URL ou falha.
+        Ignora mensagens como 'I have this article!'.
+        """
         response_event = asyncio.Event()
         response_message = None
+
+        def is_terminal(msg) -> bool:
+            if isinstance(msg.media, MessageMediaDocument):
+                return True
+            text = msg.text or ''
+            if 'http' in text:
+                return True
+            lower = text.lower()
+            failure_phrases = [
+                'not found', 'not available', "don't have", 'do not have',
+                'cannot find', 'cannot locate', 'no such article', 'error',
+                'failed', 'unavailable', 'could not', 'unable to',
+                'não encontrado', 'não tenho', 'não disponível'
+            ]
+            for phrase in failure_phrases:
+                if phrase in lower:
+                    return True
+            return False
 
         @self.client.on(events.NewMessage(from_users=self.bot_entity.id))
         async def handler(event):
             nonlocal response_message
             msg = event.message
-            if condition(msg):
+            if is_terminal(msg):
                 response_message = msg
                 response_event.set()
 
-        self._handler_registered = True
         try:
             await asyncio.wait_for(response_event.wait(), timeout=timeout)
         finally:
             self.client.remove_event_handler(handler)
-            self._handler_registered = False
 
         return response_message
 
@@ -110,7 +115,6 @@ class SciHubBotClient:
 
     @staticmethod
     def extract_text_from_pdf(pdf_bytes: bytes) -> str:
-        """Extrai texto de PDF usando PyPDF2."""
         pdf_reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
         text = ''
         for page in pdf_reader.pages:
