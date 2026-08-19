@@ -29,7 +29,7 @@ class SemanticScholarProvider(Provider):
             params={
                 "query": query,
                 "limit": limit,
-                "fields": "title,abstract,authors,venue,year,publicationDate,url,externalIds",
+                "fields": "title,abstract,authors,venue,year,publicationDate,url,externalIds,publicationTypes",
             },
             headers=headers,
         )
@@ -45,6 +45,7 @@ class SemanticScholarProvider(Provider):
 def normalize_semantic_scholar_item(item: dict) -> PaperRecord:
     external_ids = {str(k): str(v) for k, v in (item.get("externalIds") or {}).items() if v}
     doi = external_ids.get("DOI")
+    publication_types = [str(value) for value in item.get("publicationTypes") or [] if value]
     access = AccessLevel.ABSTRACT_ONLY if item.get("abstract") else AccessLevel.METADATA_ONLY
     return PaperRecord(
         title=item.get("title") or "Untitled",
@@ -54,8 +55,9 @@ def normalize_semantic_scholar_item(item: dict) -> PaperRecord:
         venue=item.get("venue"),
         publication_year=item.get("year"),
         publication_date=item.get("publicationDate"),
+        document_type=publication_types[0] if publication_types else None,
         url=item.get("url"),
         external_ids=external_ids,
         access_level=access,
-        provenance={"provider": "semantic_scholar", "paperId": item.get("paperId")},
+        provenance={"provider": "semantic_scholar", "paperId": item.get("paperId"), "publication_types": publication_types},
     )

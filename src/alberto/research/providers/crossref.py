@@ -9,6 +9,10 @@ class CrossrefProvider(Provider):
     name = "crossref"
     endpoint = "https://api.crossref.org/works"
 
+    def __init__(self, *, article_only: bool = False, **kwargs):
+        super().__init__(**kwargs)
+        self.article_only = article_only
+
     def search(self, query: str, *, limit: int, dry_run: bool = False) -> DiscoveryResult:
         if dry_run:
             return DiscoveryResult(
@@ -16,19 +20,26 @@ class CrossrefProvider(Provider):
                 query=query,
                 records=(),
                 dry_run=True,
-                provenance={"endpoint": self.endpoint, "limit": limit},
+                provenance={"endpoint": self.endpoint, "limit": limit, "article_only": self.article_only},
             )
+        params = {
+            "query": query,
+            "rows": limit,
+            "select": "DOI,title,author,issued,container-title,URL,abstract,type",
+        }
+        if self.article_only:
+            params["filter"] = "type:journal-article"
         payload = self._request_json(
             "GET",
             self.endpoint,
-            params={"query": query, "rows": limit, "select": "DOI,title,author,issued,container-title,URL,abstract"},
+            params=params,
         )
         items = payload.get("message", {}).get("items", [])
         return DiscoveryResult(
             provider=self.name,
             query=query,
             records=tuple(normalize_crossref_item(item) for item in items),
-            provenance={"endpoint": self.endpoint, "count": len(items)},
+            provenance={"endpoint": self.endpoint, "count": len(items), "article_only": self.article_only},
         )
 
 
@@ -50,10 +61,11 @@ def normalize_crossref_item(item: dict) -> PaperRecord:
         venue=venue,
         publication_year=year,
         publication_date="-".join(str(part) for part in date_parts) if date_parts else None,
+        document_type=item.get("type"),
         url=item.get("URL"),
         external_ids={"crossref_doi": item["DOI"]} if item.get("DOI") else {},
         access_level=access,
-        provenance={"provider": "crossref"},
+        provenance={"provider": "crossref", "document_type": item.get("type")},
     )
 
 

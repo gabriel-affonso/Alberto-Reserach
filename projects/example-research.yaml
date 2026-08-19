@@ -18,6 +18,14 @@ inclusion_terms:
   - prompt injection
 exclusion_terms:
   - finance
+research_filters:
+  article_only: true
+  skip_previously_read: true
+  excluded_doi_prefixes:
+    - "10.4324/"
+    - "10.1163/"
+    - "10.5040/"
+    - "10.1007/"
 discovery_limits:
   crossref: 5
   semantic_scholar: 5

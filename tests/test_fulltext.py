@@ -416,7 +416,8 @@ def test_full_text_reader_invocation(monkeypatch) -> None:
         ),
     )
     assert payload["access_level"] == "FULL_TEXT"
-    assert calls[0][0] == ["openclaw", "agent", "--agent", "research-reader", "--timeout", "300"]
+    assert Path(calls[0][0][0]).name == "openclaw"
+    assert calls[0][0][1:] == ["agent", "--agent", "research-reader", "--timeout", "300"]
     assert "Set access_level exactly to FULL_TEXT" in calls[0][1]
     assert "--- PAGE 1 ---" in calls[0][1]
 

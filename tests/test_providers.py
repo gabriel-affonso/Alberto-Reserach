@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from alberto.research.providers.base import Provider, ProviderError, RetryPolicy
-from alberto.research.providers.crossref import normalize_crossref_item
+from alberto.research.providers.crossref import CrossrefProvider, normalize_crossref_item
 from alberto.research.providers.semantic_scholar import normalize_semantic_scholar_item
 
 
@@ -22,6 +22,34 @@ def test_provider_normalization() -> None:
     assert scholar.doi == "10.1234/example.doi"
     assert crossref.authors == ("Ada Lovelace",)
     assert scholar.external_ids["CorpusId"] == "987"
+
+
+def test_crossref_article_only_sets_journal_article_filter(monkeypatch) -> None:
+    calls = []
+
+    class Response:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"message": {"items": []}}
+
+    def request(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        return Response()
+
+    import sys
+    import types
+
+    monkeypatch.setitem(sys.modules, "requests", types.SimpleNamespace(request=request))
+    provider = CrossrefProvider(article_only=True, retry_policy=RetryPolicy(attempts=1))
+    provider.search("greek tragedy", limit=3)
+    params = calls[0][2]["params"]
+    assert params["filter"] == "type:journal-article"
+    assert "type" in params["select"]
 
 
 def test_crossref_missing_and_partial_dates_do_not_fail() -> None:

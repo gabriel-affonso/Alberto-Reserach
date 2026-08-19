@@ -22,10 +22,29 @@ from alberto.research.schemas import validate_reader_output
 
 LOG = logging.getLogger("alberto.research.workflow")
 SEMANTIC_SCREENING_MODEL = "openai/gpt-5.6-sol"
+DEFAULT_BOOK_DOI_PREFIXES = ("10.4324/", "10.1163/", "10.5040/", "10.1007/")
+ARTICLE_DOCUMENT_TYPES = {
+    "article",
+    "journal-article",
+    "journal article",
+    "journalarticle",
+    "review-article",
+    "proceedings-article",
+}
+BOOK_DOCUMENT_TYPES = {
+    "book",
+    "book-chapter",
+    "book chapter",
+    "bookchapter",
+    "chapter",
+    "monograph",
+    "edited-book",
+    "reference-book",
+}
 
 
-def default_providers() -> list[Provider]:
-    return [CrossrefProvider(), SemanticScholarProvider()]
+def default_providers(config: dict | None = None) -> list[Provider]:
+    return [CrossrefProvider(article_only=article_only_enabled(config or {})), SemanticScholarProvider()]
 
 
 def build_queries(config: dict) -> list[str]:
@@ -89,7 +108,7 @@ def run_research_workflow(
     repo = AlbertoRepository(conn)
     repo.upsert_project(config, str(project_path))
     run_id = repo.create_run(config["id"], "daily_research")
-    providers = list(providers or default_providers())
+    providers = list(providers or default_providers(config))
     provider_names: list[str] = []
     candidate_count = 0
     screened_count = 0
@@ -119,6 +138,10 @@ def run_research_workflow(
                     errors.append(f"{provider.name}:{exc}")
                     continue
                 for rank, record in enumerate(result.records, start=1):
+                    skip_reason = record_skip_reason(config, record)
+                    if skip_reason:
+                        LOG.info("skipping discovered record", extra={"title": record.title, "reason": skip_reason})
+                        continue
                     records.append(record)
                     paper_id = repo.upsert_paper(record)
                     repo.add_discovery(
@@ -130,6 +153,8 @@ def run_research_workflow(
                         record.provenance | result.provenance,
                     )
                     if paper_id in processed_paper_ids:
+                        continue
+                    if skip_previously_read_enabled(config) and repo.has_reading(config["id"], paper_id):
                         continue
                     processed_paper_ids.add(paper_id)
 
@@ -239,6 +264,59 @@ def deterministic_screening_score(config: dict, title: str, abstract: str | None
     if any(term in haystack for term in exclude):
         score -= 0.5
     return max(0.0, min(1.0, score))
+
+
+def research_filters(config: dict) -> dict:
+    filters = config.get("research_filters")
+    return filters if isinstance(filters, dict) else {}
+
+
+def article_only_enabled(config: dict) -> bool:
+    return bool(research_filters(config).get("article_only", False))
+
+
+def skip_previously_read_enabled(config: dict) -> bool:
+    return bool(research_filters(config).get("skip_previously_read", True))
+
+
+def excluded_book_doi_prefixes(config: dict) -> tuple[str, ...]:
+    filters = research_filters(config)
+    configured = filters.get("excluded_doi_prefixes")
+    if not isinstance(configured, list):
+        return DEFAULT_BOOK_DOI_PREFIXES if article_only_enabled(config) else ()
+    return tuple(str(prefix).lower() for prefix in configured if str(prefix).strip())
+
+
+def record_skip_reason(config: dict, record: PaperRecord) -> str | None:
+    if article_only_enabled(config) and not is_article_record(record):
+        return "not_journal_article"
+    doi = (record.doi or "").lower()
+    if doi and any(doi.startswith(prefix) for prefix in excluded_book_doi_prefixes(config)):
+        return "excluded_book_doi_prefix"
+    return None
+
+
+def is_article_record(record: PaperRecord) -> bool:
+    document_type = normalize_document_type(record.document_type)
+    if document_type in ARTICLE_DOCUMENT_TYPES:
+        return True
+    if document_type in BOOK_DOCUMENT_TYPES:
+        return False
+    publication_types = record.provenance.get("publication_types")
+    if isinstance(publication_types, list):
+        normalized_types = {normalize_document_type(value) for value in publication_types}
+        if normalized_types & ARTICLE_DOCUMENT_TYPES:
+            return True
+        if normalized_types & BOOK_DOCUMENT_TYPES:
+            return False
+    provider = record.provenance.get("provider")
+    if provider == "semantic_scholar" and not document_type and not publication_types:
+        return True
+    return not document_type
+
+
+def normalize_document_type(value: object) -> str:
+    return str(value or "").replace("_", "-").strip().lower()
 
 
 def semantic_screen_candidate(config: dict, record: PaperRecord) -> ScreeningResult:

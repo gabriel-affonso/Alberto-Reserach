@@ -15,6 +15,7 @@ class PaperRecord:
     venue: str | None = None
     publication_year: int | None = None
     publication_date: str | None = None
+    document_type: str | None = None
     url: str | None = None
     external_ids: dict[str, str] = field(default_factory=dict)
     access_level: AccessLevel = AccessLevel.METADATA_ONLY

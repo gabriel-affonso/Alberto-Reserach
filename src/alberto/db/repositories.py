@@ -211,6 +211,13 @@ class AlbertoRepository:
                 (state.value, utc_now(), paper_id),
             )
 
+    def has_reading(self, project_id: str, paper_id: int) -> bool:
+        row = self.conn.execute(
+            "SELECT 1 FROM readings WHERE project_id=? AND paper_id=? LIMIT 1",
+            (project_id, paper_id),
+        ).fetchone()
+        return row is not None
+
     def add_screening(
         self,
         project_id: str,
