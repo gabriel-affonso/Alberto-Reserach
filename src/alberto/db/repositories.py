@@ -419,6 +419,7 @@ class AlbertoRepository:
             FROM readings r
             JOIN papers p ON p.id = r.paper_id
             WHERE r.project_id = ?
+              AND r.access_level != 'METADATA_ONLY'
               AND NOT EXISTS (
                 SELECT 1
                 FROM digest_items di
@@ -433,6 +434,27 @@ class AlbertoRepository:
                 WHERE r2.project_id = r.project_id AND r2.paper_id = r.paper_id
               )
             ORDER BY r.confidence DESC, COALESCE(p.publication_year, 0) DESC, r.created_at DESC
+            LIMIT ?
+            """,
+            (project_id, limit),
+        ).fetchall()
+
+    def recent_query_seed_readings(self, project_id: str, limit: int = 20) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            """
+            SELECT
+              p.title,
+              p.doi,
+              p.venue,
+              p.publication_year,
+              r.structured_json,
+              r.confidence,
+              r.created_at AS reading_created_at
+            FROM readings r
+            JOIN papers p ON p.id = r.paper_id
+            WHERE r.project_id = ?
+              AND r.access_level != 'METADATA_ONLY'
+            ORDER BY r.confidence DESC, r.created_at DESC
             LIMIT ?
             """,
             (project_id, limit),

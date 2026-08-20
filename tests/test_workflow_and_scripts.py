@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -223,6 +224,37 @@ def test_query_generation_uses_composed_queries() -> None:
     assert all("agent orchestration for hostile papers" in query for query in queries)
     assert "prompt injection" not in queries
     assert "sandboxed readers" not in queries
+
+
+def test_autonomous_query_generation_uses_prior_reading_seeds() -> None:
+    config = {
+        "research_question": "Greek tragedy as civic religion",
+        "priority_topics": ["festival institutions", "audience education"],
+        "inclusion_terms": ["Athens", "Dionysia"],
+        "autonomous_discovery": {
+            "enabled": True,
+            "max_dynamic_queries": 3,
+            "max_queries_per_provider": 7,
+        },
+    }
+    seed_readings = [
+        {
+            "structured_json": json.dumps(
+                {
+                    "concepts": ["civic ritual", "polis religion"],
+                    "references_to_follow": ["Sourvinou-Inwood Tragedy and Athenian Religion"],
+                    "major_findings": ["theatre shaped collective judgment in Athens"],
+                }
+            )
+        }
+    ]
+
+    queries = build_queries(config, seed_readings=seed_readings)
+
+    assert len(queries) <= 7
+    assert any("civic ritual" in query for query in queries)
+    assert any("polis religion" in query for query in queries)
+    assert any("Sourvinou-Inwood" in query for query in queries)
 
 
 def test_semantic_screening_scores_and_rationale() -> None:
@@ -483,3 +515,12 @@ def test_installer_dry_run() -> None:
     )
     assert "Mode: dry-run" in result.stdout
     assert "Installation report" in result.stdout
+
+
+def test_continuous_research_script_uses_env_and_digest() -> None:
+    script = Path("scripts/run-continuous-research.sh").read_text(encoding="utf-8")
+    assert "ALBERTO_RESEARCH_INTERVAL_SECONDS" in script
+    assert "$HOME/.alberto-env" in script
+    assert "research run --project" in script
+    assert "research digest --project" in script
+    assert "sleep \"$INTERVAL_SECONDS\"" in script

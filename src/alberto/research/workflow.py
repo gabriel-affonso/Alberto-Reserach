@@ -4,7 +4,7 @@ import json
 import logging
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
 
 from alberto.db.connection import connect
 from alberto.db.migrations import apply_migrations
@@ -47,7 +47,7 @@ def default_providers(config: dict | None = None) -> list[Provider]:
     return [CrossrefProvider(article_only=article_only_enabled(config or {})), SemanticScholarProvider()]
 
 
-def build_queries(config: dict) -> list[str]:
+def build_queries(config: dict, seed_readings: Iterable[Any] | None = None) -> list[str]:
     question = _clean_query_part(config["research_question"])
     priority_topics = [_clean_query_part(term) for term in config.get("priority_topics", [])]
     inclusion_terms = [_clean_query_part(term) for term in config.get("inclusion_terms", [])]
@@ -66,7 +66,11 @@ def build_queries(config: dict) -> list[str]:
     for query in queries:
         if query and query not in unique:
             unique.append(query)
-    return unique[:4]
+    if autonomous_discovery_enabled(config):
+        for query in build_autonomous_queries(config, seed_readings or []):
+            if query and query not in unique:
+                unique.append(query)
+    return unique[:max_queries_per_provider(config)]
 
 
 def _clean_query_part(value: object) -> str:
@@ -76,6 +80,65 @@ def _clean_query_part(value: object) -> str:
 def _compose_query(question: str, priority_topics: list[str], inclusion_terms: list[str]) -> str:
     parts = [question, *priority_topics, *inclusion_terms]
     return " ".join(part for part in parts if part)
+
+
+def build_autonomous_queries(config: dict, seed_readings: Iterable[Any]) -> list[str]:
+    question = _clean_query_part(config["research_question"])
+    phrases = extract_autonomous_seed_phrases(seed_readings)
+    queries: list[str] = []
+    for phrase in phrases:
+        query = _compose_query(question, [phrase], [])
+        if query and query not in queries:
+            queries.append(query)
+        if len(queries) >= max_dynamic_queries(config):
+            break
+    return queries
+
+
+def extract_autonomous_seed_phrases(seed_readings: Iterable[Any]) -> list[str]:
+    phrases: list[str] = []
+    for reading in seed_readings:
+        structured = mapping_value(reading, "structured_json")
+        if isinstance(structured, str):
+            try:
+                structured = json.loads(structured)
+            except json.JSONDecodeError:
+                structured = {}
+        if not isinstance(structured, dict):
+            continue
+        for field in ("concepts", "references_to_follow", "major_findings"):
+            values = structured.get(field) or []
+            if isinstance(values, str):
+                values = [values]
+            for value in values:
+                phrase = autonomous_seed_phrase(value)
+                if phrase and phrase not in phrases:
+                    phrases.append(phrase)
+    return phrases
+
+
+def mapping_value(value: Any, key: str) -> Any:
+    if isinstance(value, dict):
+        return value.get(key)
+    try:
+        return value[key]
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
+def autonomous_seed_phrase(value: object) -> str | None:
+    phrase = _clean_query_part(value)
+    if not phrase:
+        return None
+    phrase = phrase.strip("-* ")
+    if len(phrase) < 4:
+        return None
+    if len(phrase) > 90:
+        phrase = phrase[:90].rsplit(" ", 1)[0]
+    lowered = phrase.lower()
+    if lowered in {"none", "n/a", "not available"}:
+        return None
+    return phrase
 
 
 @dataclass(frozen=True)
@@ -123,12 +186,17 @@ def run_research_workflow(
         processed_paper_ids: set[int] = set()
         screened_candidates: list[ScreenedCandidate] = []
         deep_read_limit = int(config.get("maximum_daily_deep_reads", 0))
+        seed_readings = repo.recent_query_seed_readings(
+            config["id"],
+            limit=autonomous_seed_reading_limit(config),
+        )
+        discovery_queries = build_queries(config, seed_readings=seed_readings)
         for provider in providers:
             limit = int(config.get("discovery_limits", {}).get(provider.name, 10))
             if limit <= 0:
                 continue
             provider_names.append(provider.name)
-            for query in build_queries(config):
+            for query in discovery_queries:
                 search_id = repo.create_search(config["id"], provider.name, query, {"limit": limit}, dry_run)
                 try:
                     result = provider.search(query, limit=limit, dry_run=dry_run)
@@ -269,6 +337,36 @@ def deterministic_screening_score(config: dict, title: str, abstract: str | None
 def research_filters(config: dict) -> dict:
     filters = config.get("research_filters")
     return filters if isinstance(filters, dict) else {}
+
+
+def autonomous_discovery_config(config: dict) -> dict:
+    settings = config.get("autonomous_discovery")
+    return settings if isinstance(settings, dict) else {}
+
+
+def autonomous_discovery_enabled(config: dict) -> bool:
+    return bool(autonomous_discovery_config(config).get("enabled", False))
+
+
+def max_dynamic_queries(config: dict) -> int:
+    return positive_int(autonomous_discovery_config(config).get("max_dynamic_queries"), default=4)
+
+
+def max_queries_per_provider(config: dict) -> int:
+    default = 8 if autonomous_discovery_enabled(config) else 4
+    return positive_int(autonomous_discovery_config(config).get("max_queries_per_provider"), default=default)
+
+
+def autonomous_seed_reading_limit(config: dict) -> int:
+    return positive_int(autonomous_discovery_config(config).get("seed_reading_limit"), default=20)
+
+
+def positive_int(value: object, *, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
 
 
 def article_only_enabled(config: dict) -> bool:

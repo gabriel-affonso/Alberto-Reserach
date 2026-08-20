@@ -182,8 +182,9 @@ Acceptance criteria:
 - Digests prefer persisted readings over raw paper metadata.
 - Provider/query errors are retained in run diagnostics without stopping valid results from other providers.
 - Projects can opt into article-only discovery filters, excluded DOI prefixes for book-heavy publishers, and skipping papers already read in earlier runs.
+- Projects can opt into autonomous discovery queries derived from prior readings, concepts, findings and references to follow.
 
-Completion note: implemented with offline fixtures, article-only controls and regression tests; full-PDF reading remains a later milestone.
+Completion note: implemented with offline fixtures, article-only controls, autonomous query expansion and regression tests; full-PDF reading remains a later milestone.
 
 ## M14 - Full-Text Acquisition
 

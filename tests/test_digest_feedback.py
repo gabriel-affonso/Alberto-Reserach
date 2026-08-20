@@ -99,6 +99,32 @@ def test_newer_full_text_reading_after_metadata_digest_is_reportable(repo: Alber
     assert '"access_level": "FULL_TEXT"' in rows[0]["structured_json"]
 
 
+def test_metadata_only_readings_are_not_promoted_to_digest_findings(repo: AlbertoRepository) -> None:
+    repo.upsert_project(_project_config("p1"))
+    metadata_paper_id = _paper(repo, "Metadata Only")
+    full_text_paper_id = _paper(repo, "Full Text")
+    repo.add_reading("p1", metadata_paper_id, _reading_payload("METADATA_ONLY"))
+    repo.add_reading("p1", full_text_paper_id, _reading_payload("FULL_TEXT"))
+
+    digest_id, body = generate_digest(repo, project_id="p1", project_name="Project", digest_date="2026-08-15")
+
+    assert digest_id > 0
+    assert "Full Text" in body
+    assert "Metadata Only" not in body
+
+
+def test_metadata_only_reading_does_not_block_paper_fallback(repo: AlbertoRepository) -> None:
+    repo.upsert_project(_project_config("p1"))
+    paper_id = _paper(repo, "Metadata Fallback")
+    repo.add_reading("p1", paper_id, _reading_payload("METADATA_ONLY"))
+
+    digest_id, body = generate_digest(repo, project_id="p1", project_name="Project", digest_date="2026-08-15")
+
+    assert digest_id > 0
+    assert "Metadata Fallback" in body
+    assert "Metadata-only discovery" not in body
+
+
 def test_reading_represented_by_newer_digest_is_not_reportable(repo: AlbertoRepository) -> None:
     repo.upsert_project(_project_config("p1"))
     paper_id = _paper(repo)

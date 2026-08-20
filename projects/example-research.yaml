@@ -26,6 +26,11 @@ research_filters:
     - "10.1163/"
     - "10.5040/"
     - "10.1007/"
+autonomous_discovery:
+  enabled: true
+  seed_reading_limit: 20
+  max_dynamic_queries: 4
+  max_queries_per_provider: 8
 discovery_limits:
   crossref: 5
   semantic_scholar: 5
