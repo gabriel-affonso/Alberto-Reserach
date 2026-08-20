@@ -1,0 +1,25 @@
+{
+  agents: {
+    list: [
+      {
+        id: "research-reader",
+        sandbox: {
+          mode: "all",
+          scope: "agent"
+        },
+        tools: {
+          sandbox: {
+            tools: {
+              deny: [
+                "browser",
+                "web_search",
+                "web_fetch"
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}
+

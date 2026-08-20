@@ -45,24 +45,20 @@ class SciHubBotClient:
         await self.client.send_message(self.bot_entity, query)
         logger.info(f"Consulta enviada: {query}")
 
-        # Espera por qualquer mensagem do bot que seja documento, URL ou falha
         response = await self._wait_for_response(timeout)
         if response is None:
             raise TimeoutError(f"Bot não respondeu em {timeout}s para: {query}")
 
-        # Se for documento, baixa
         if isinstance(response.media, MessageMediaDocument):
             logger.info("Documento recebido, baixando...")
             return await self.client.download_media(response, file=bytes)
 
         text = response.text or ''
-        # Se contém URL, baixa o PDF
         if 'http' in text:
             url = text.strip().split()[-1]
             logger.info(f"Baixando PDF da URL: {url}")
             return self._download_pdf(url)
 
-        # Se for mensagem de falha, levanta erro
         raise ValueError(f"Bot respondeu com falha: {text[:200]}")
 
     async def _wait_for_response(self, timeout: int):

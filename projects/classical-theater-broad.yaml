@@ -1,0 +1,116 @@
+id: classical-theater-broad
+name: Classical Theater Broad Survey
+
+research_question: How did classical Greek and Roman theater work as performance, literature, social practice, and cultural memory across genres, spaces, performers, audiences, and textual traditions?
+
+priority_topics:
+  - ancient Greek and Roman theater performance practice
+  - comedy, satyr drama, mime, pantomime, and non-tragic theatrical genres
+  - theater architecture, stagecraft, masks, costumes, music, and dance
+  - actors, choruses, playwrights, producers, and theatrical labor
+  - audiences, festivals, reception, reperformance, and theatrical space
+  - textual transmission, fragments, scholia, papyri, and material evidence
+  - Roman republican and imperial theater
+  - comparative approaches to classical drama beyond Athenian tragedy
+
+priority_authors:
+  - Oliver Taplin
+  - David Wiles
+  - Peter Wilson
+  - Rush Rehm
+  - Edith Hall
+  - C. W. Marshall
+  - Ian C. Storey
+  - Niall W. Slater
+  - Gesine Manuwald
+  - Richard C. Beacham
+  - Graham Ley
+
+languages:
+  - en
+
+date_ranges:
+  start: 1950-01-01
+  end: 2026-12-31
+
+inclusion_terms:
+  - classical theater
+  - ancient theatre
+  - Greek comedy
+  - Roman comedy
+  - satyr drama
+  - mime
+  - pantomime
+  - performance
+  - stagecraft
+  - masks
+  - chorus
+  - actors
+  - theater architecture
+  - papyri
+  - fragments
+
+exclusion_terms:
+  - psychotherapy
+  - film
+  - television
+  - Shakespeare
+  - modern theatre
+  - contemporary performance
+  - civic ideology
+  - Great Dionysia only
+
+research_filters:
+  article_only: true
+  skip_previously_read: true
+  excluded_doi_prefixes:
+    - "10.4324/"
+    - "10.1163/"
+    - "10.5040/"
+    - "10.1007/"
+
+autonomous_discovery:
+  enabled: true
+  seed_reading_limit: 20
+  max_dynamic_queries: 6
+  max_queries_per_provider: 10
+
+discovery_limits:
+  crossref: 12
+  semantic_scholar: 12
+
+screening_threshold: 0.45
+deep_reading_threshold: 0.35
+maximum_daily_deep_reads: 6
+
+fulltext:
+  enable_scihub: true
+  enable_scihub_mcp: true
+  enable_annas_archive: false
+  unpaywall_email: "research@example.com"
+  core_api_key: ""
+  resolver_order:
+    - zotero
+    - unpaywall
+    - openalex
+    - core
+    - doaj
+    - europepmc
+    - provider_url
+    - abstract
+    - metadata
+  download_timeout: 30
+  cache_dir: ".cache/fulltext"
+
+citation_chasing:
+  enabled: true
+  max_depth: 1
+  max_references_per_paper: 10
+
+digest:
+  enabled: true
+  delivery_time: "08:00"
+  max_items: 12
+  save_local: true
+
+timezone: Europe/Lisbon

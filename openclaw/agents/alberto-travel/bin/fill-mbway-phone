@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PHONE_REF="${1:?usage: fill-mbway-phone <browser-ref>}"
+
+SECRETS_FILE="${ALBERTO_SECRETS_FILE:-$HOME/.config/alberto/secrets.env}"
+
+if [[ ! -f "$SECRETS_FILE" ]]; then
+    echo '{"ok":false,"error":"secrets file not found"}'
+    exit 1
+fi
+
+set -a
+source "$SECRETS_FILE"
+set +a
+
+: "${ALBERTO_MBWAY_PHONE:?ALBERTO_MBWAY_PHONE is not configured}"
+
+FIELDS="$(
+    PHONE_REF="$PHONE_REF" python3 - <<'PY'
+import json
+import os
+
+print(json.dumps([
+    {
+        "ref": os.environ["PHONE_REF"],
+        "value": os.environ["ALBERTO_MBWAY_PHONE"]
+    }
+]))
+PY
+)"
+
+openclaw browser \
+    --browser-profile openclaw \
+    fill \
+    --fields "$FIELDS" >/dev/null
+
+echo '{"ok":true}'
