@@ -13,6 +13,7 @@ from alberto.research.workflow import (
     ScreeningResult,
     build_queries,
     default_research_reader,
+    digest_email_subject,
     semantic_screen_candidate,
     validate_semantic_screening_output,
     run_digest_workflow,
@@ -387,6 +388,39 @@ def test_digest_uses_persisted_readings(tmp_path: Path) -> None:
     assert "Connects to sandboxed delegation" in body
     assert "Follow reference A" in body
     conn.close()
+
+
+def test_digest_workflow_delivers_saved_digest(monkeypatch, tmp_path: Path) -> None:
+    deliveries = []
+
+    class FakeDelivery:
+        def deliver(self, *, subject, body, local_path):
+            deliveries.append({"subject": subject, "body": body, "local_path": local_path})
+            return "email:test@example.test"
+
+    project_path = write_project(tmp_path)
+    db_path = tmp_path / "alberto.sqlite3"
+    run_research_workflow(
+        project_path=project_path,
+        db_path=db_path,
+        providers=[DeepReadProvider()],
+        semantic_screener=fake_semantic,
+        reader=fake_reader,
+    )
+    monkeypatch.setattr("alberto.research.workflow.configured_delivery", lambda: FakeDelivery())
+
+    digest_id, digest_path = run_digest_workflow(project_path=project_path, db_path=db_path, output_dir=tmp_path / "digests")
+
+    assert digest_id > 0
+    assert deliveries
+    assert deliveries[0]["subject"].startswith("Workflow Test Research Digest")
+    assert deliveries[0]["local_path"] == digest_path
+    assert "Follow reference A" in deliveries[0]["body"]
+
+
+def test_digest_email_subject_uses_heading() -> None:
+    assert digest_email_subject("# Daily Research Digest\n\nBody", fallback="Fallback") == "Daily Research Digest"
+    assert digest_email_subject("Body without heading", fallback="Fallback") == "Fallback"
 
 
 def test_provider_error_does_not_stop_valid_results(tmp_path: Path) -> None:

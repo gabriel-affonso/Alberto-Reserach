@@ -11,6 +11,7 @@ from alberto.db.migrations import apply_migrations
 from alberto.db.repositories import AlbertoRepository
 from alberto.enums import AccessLevel, LifecycleState
 from alberto.research.config import load_project_config
+from alberto.research.delivery import configured_delivery
 from alberto.research.dedupe import dedupe_records
 from alberto.research.digest import generate_digest, save_digest
 from alberto.research.fulltext import FullTextResolver, PersistedDocument, ResolvedDocument
@@ -596,5 +597,15 @@ def run_digest_workflow(
         limit=int(config.get("digest", {}).get("max_items", 10)),
     )
     path = save_digest(body, output_dir or Path("data/digests"), config["id"], digest_id)
+    subject = digest_email_subject(body, fallback=f"{config['name']} Research Digest")
+    configured_delivery().deliver(subject=subject, body=body, local_path=path)
     conn.close()
     return digest_id, path
+
+
+def digest_email_subject(body: str, *, fallback: str) -> str:
+    for line in body.splitlines():
+        title = line.strip()
+        if title.startswith("# "):
+            return title[2:].strip() or fallback
+    return fallback
