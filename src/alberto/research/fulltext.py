@@ -61,9 +61,12 @@ class PersistedDocument:
 class FullTextResolver:
     def __init__(self, resolvers: list[Resolver] | None = None):
         from alberto.research.providers.scihub import SciHubResolver
+        from alberto.research.providers.scihub_http import SciHubHttpResolver
+        from alberto.research.providers.libgen import LibgenResolver
+        from alberto.research.providers.tesble import TesbleResolver
         self.resolvers = resolvers or [
-            SciHubResolver(),
-            MCPSciHubResolver(),
+            # SciHubResolver(),
+            # MCPSciHubResolver(),
             ZoteroFullTextResolver(),
             UnpaywallResolver(),
             OpenAlexResolver(),
@@ -73,6 +76,9 @@ class FullTextResolver:
             ProviderUrlResolver(),
             AbstractFallbackResolver(),
             MetadataFallbackResolver(),
+            TesbleResolver(),
+            LibgenResolver(),
+            SciHubHttpResolver(),
         ]
 
         logger.info(f"FullTextResolver initialized with: {[r.__class__.__name__ for r in self.resolvers]}")
