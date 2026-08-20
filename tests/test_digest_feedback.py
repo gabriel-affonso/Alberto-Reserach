@@ -81,6 +81,10 @@ def test_digest_items_are_stable(repo: AlbertoRepository) -> None:
     feedback_id = repo.add_feedback("p1", FeedbackType.VERY_IMPORTANT, digest_item_id=item_id)
     assert digest_id > 0
     assert feedback_id > 0
+    assert "## Executive Summary" in body
+    assert "## Newly Discovered Candidates" in body
+    assert "- Abstract signal: Important abstract" in body
+    assert "- Next action: acquire full text" in body
 
 
 def test_newer_full_text_reading_after_metadata_digest_is_reportable(repo: AlbertoRepository) -> None:
@@ -97,6 +101,28 @@ def test_newer_full_text_reading_after_metadata_digest_is_reportable(repo: Alber
 
     assert [row["paper_id"] for row in rows] == [paper_id]
     assert '"access_level": "FULL_TEXT"' in rows[0]["structured_json"]
+
+
+def test_digest_reading_contains_useful_synthesis(repo: AlbertoRepository) -> None:
+    repo.upsert_project(_project_config("p1"))
+    paper_id = _paper(repo, "Useful Reading")
+    payload = _reading_payload("FULL_TEXT") | {
+        "central_argument": "Tragedy trained civic judgment through staged conflict.",
+        "major_findings": ["Finding one", "Finding two"],
+        "relevance_to_project": "Directly addresses civic pedagogy.",
+        "references_to_follow": ["Reference A"],
+    }
+    repo.add_reading("p1", paper_id, payload)
+
+    digest_id, body = generate_digest(repo, project_id="p1", project_name="Project", digest_date="2026-08-15")
+
+    assert digest_id > 0
+    assert "## Synthesized Readings" in body
+    assert "### Useful Reading" in body
+    assert "- Central argument: Tragedy trained civic judgment through staged conflict." in body
+    assert "- Relevance: Directly addresses civic pedagogy." in body
+    assert "  - Finding one" in body
+    assert "  - Reference A" in body
 
 
 def test_metadata_only_readings_are_not_promoted_to_digest_findings(repo: AlbertoRepository) -> None:

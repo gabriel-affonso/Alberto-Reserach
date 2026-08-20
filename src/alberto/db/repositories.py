@@ -411,8 +411,11 @@ class AlbertoRepository:
             SELECT
               p.id AS paper_id,
               p.title,
+              p.doi,
               p.abstract,
+              p.venue,
               p.publication_year,
+              r.access_level,
               r.structured_json,
               r.confidence,
               r.created_at AS reading_created_at

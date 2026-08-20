@@ -30,10 +30,8 @@ def generate_digest(
     lines = [
         f"# {project_name} Research Digest - {digest_date}",
         "",
-        "## Run Statistics",
-        f"- New reportable papers: {stats['new_reported_papers']}",
-        "",
-        "## Top Findings",
+        "## Executive Summary",
+        digest_summary_line(readings_count=len(readings), papers_count=len(papers)),
     ]
     items: list[dict[str, Any]] = []
     changed: list[str] = []
@@ -43,14 +41,18 @@ def generate_digest(
     human_reading: list[str] = []
     references: list[str] = []
     if not readings and not papers:
+        lines.append("")
+        lines.append("## Status")
         lines.append("- No new papers to report.")
+    if readings:
+        lines.extend(["", "## Synthesized Readings"])
     for reading in readings:
         paper_id = int(reading["paper_id"])
         item_id = stable_digest_item_id(project_id, paper_id, "reading", digest_date)
         structured = json.loads(reading["structured_json"])
         title = reading["title"]
         findings = structured.get("major_findings") or []
-        body = "\n".join(str(finding) for finding in findings[:3]) or structured.get("relevance_to_project") or "Structured reading persisted."
+        body = reading_body(structured)
         changed.extend(str(finding) for finding in findings[:2])
         connections.extend(str(item) for item in structured.get("connections", [])[:2])
         contradictions.extend(str(item) for item in structured.get("disagreements", [])[:2])
@@ -63,9 +65,7 @@ def generate_digest(
         if structured.get("confidence", 1) < 0.5:
             gaps.append(f"Low-confidence reading needs review: {title}")
         stable_ref = item_id
-        lines.append(f"- `{stable_ref}` {title}")
-        if body:
-            lines.append(f"  {body}")
+        lines.extend(format_reading_item(reading, structured, stable_ref))
         items.append(
             {
                 "id": item_id,
@@ -76,12 +76,15 @@ def generate_digest(
                 "stable_ref": stable_ref,
             }
         )
+    if papers:
+        lines.extend(["", "## Newly Discovered Candidates"])
     for paper in papers:
         item_id = stable_digest_item_id(project_id, int(paper["id"]), "paper", digest_date)
         title = paper["title"]
-        body = paper["abstract"] or "Metadata-only discovery. Human review may be needed."
+        body = paper_candidate_body(paper)
         stable_ref = item_id
-        lines.append(f"- `{stable_ref}` {title}")
+        lines.extend(format_paper_item(paper, stable_ref))
+        gaps.append(f"Needs full-text acquisition or abstract-level reading: {title}")
         items.append(
             {
                 "id": item_id,
@@ -131,6 +134,106 @@ def generate_digest(
         items,
     )
     return digest_id, body
+
+
+def digest_summary_line(*, readings_count: int, papers_count: int) -> str:
+    if readings_count:
+        return f"- {readings_count} new synthesized reading(s) with extracted findings, relevance, and follow-up leads."
+    if papers_count:
+        return f"- {papers_count} newly discovered candidate paper(s) need reading; details below include DOI, venue and abstract when available."
+    return "- No new reportable papers or readings were found in this cycle."
+
+
+def format_reading_item(reading: Any, structured: dict[str, Any], stable_ref: str) -> list[str]:
+    lines = [
+        f"### {reading['title']}",
+        f"- Ref: `{stable_ref}`",
+        f"- Access: {structured.get('access_level') or reading['access_level']} | Confidence: {structured.get('confidence', reading['confidence'])}",
+    ]
+    metadata = compact_metadata(
+        doi=reading["doi"],
+        venue=reading["venue"],
+        year=reading["publication_year"],
+    )
+    if metadata:
+        lines.append(f"- Metadata: {metadata}")
+    central = clean_text(structured.get("central_argument"))
+    if central:
+        lines.append(f"- Central argument: {central}")
+    relevance = clean_text(structured.get("relevance_to_project") or structured.get("relevance"))
+    if relevance:
+        lines.append(f"- Relevance: {relevance}")
+    findings = [clean_text(item) for item in structured.get("major_findings", []) if clean_text(item)]
+    if findings:
+        lines.append("- Key findings:")
+        lines.extend(f"  - {finding}" for finding in findings[:3])
+    refs = [clean_text(item) for item in structured.get("references_to_follow", []) if clean_text(item)]
+    if refs:
+        lines.append("- Follow up:")
+        lines.extend(f"  - {ref}" for ref in refs[:3])
+    return lines
+
+
+def format_paper_item(paper: Any, stable_ref: str) -> list[str]:
+    title = paper["title"]
+    lines = [
+        f"### {title}",
+        f"- Ref: `{stable_ref}`",
+    ]
+    metadata = compact_metadata(
+        doi=paper["doi"],
+        venue=paper["venue"],
+        year=paper["publication_year"],
+    )
+    if metadata:
+        lines.append(f"- Metadata: {metadata}")
+    abstract = clean_text(paper["abstract"])
+    if abstract:
+        lines.append(f"- Abstract signal: {truncate_words(abstract, 80)}")
+    else:
+        lines.append("- Abstract signal: No abstract available yet; this is a metadata-only candidate.")
+    lines.append("- Next action: acquire full text or perform abstract-level reading in a future cycle.")
+    return lines
+
+
+def reading_body(structured: dict[str, Any]) -> str:
+    findings = [clean_text(finding) for finding in structured.get("major_findings", []) if clean_text(finding)]
+    if findings:
+        return "\n".join(findings[:3])
+    for key in ("central_argument", "relevance_to_project", "relevance"):
+        value = clean_text(structured.get(key))
+        if value:
+            return value
+    return "Structured reading persisted."
+
+
+def paper_candidate_body(paper: Any) -> str:
+    abstract = clean_text(paper["abstract"])
+    if abstract:
+        return truncate_words(abstract, 120)
+    return "Metadata-only discovery. Human review may be needed."
+
+
+def compact_metadata(*, doi: str | None, venue: str | None, year: int | None) -> str:
+    parts = []
+    if doi:
+        parts.append(f"DOI {doi}")
+    if year:
+        parts.append(str(year))
+    if venue:
+        parts.append(str(venue))
+    return " | ".join(parts)
+
+
+def clean_text(value: Any) -> str:
+    return " ".join(str(value or "").split())
+
+
+def truncate_words(value: str, limit: int) -> str:
+    words = clean_text(value).split()
+    if len(words) <= limit:
+        return " ".join(words)
+    return " ".join(words[:limit]).rstrip(".,;:") + "..."
 
 
 def save_digest(body: str, output_dir: str | Path, project_id: str, digest_id: int) -> Path:
