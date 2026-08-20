@@ -25,6 +25,7 @@ from alberto.research.fulltext import (
     download_pdf_url,
     extract_pdf_text,
     ordered_resolvers,
+    resolver_name,
     validate_pdf_response,
 )
 from alberto.research.models import DiscoveryResult, PaperRecord
@@ -37,6 +38,14 @@ from alberto.research.workflow import (
 
 
 PDF_BYTES = b"%PDF-1.4\nfake pdf bytes"
+
+
+def libgen_integration_module():
+    return pytest.importorskip(
+        "alberto.research.libgen_integration",
+        reason="optional LibGen compatibility dependencies are not installed",
+        exc_type=ModuleNotFoundError,
+    )
 
 
 class FakeZoteroAdapter:
@@ -537,6 +546,49 @@ def test_resolver_order_can_be_configured_from_fulltext_block() -> None:
         )
     ]
     assert configured == ["openalex", "unpaywall", "provider_url"]
+
+
+def test_default_fulltext_resolvers_use_supported_sources() -> None:
+    ordered = [resolver_name(resolver) for resolver in FullTextResolver().resolvers]
+    assert ordered[:9] == [
+        "zotero",
+        "unpaywall",
+        "openalex",
+        "core",
+        "doaj",
+        "europepmc",
+        "provider_url",
+        "scihub_mcp",
+        "scihub",
+    ]
+    assert ordered[-2:] == [
+        "abstract",
+        "metadata",
+    ]
+    for optional_name in ("tesble", "libgen", "scihub_http"):
+        if optional_name in ordered:
+            assert ordered.index(optional_name) < ordered.index("abstract")
+
+
+def test_legacy_libgen_wrapper_uses_supported_resolvers(tmp_path: Path) -> None:
+    module = libgen_integration_module()
+    pdf_path = tmp_path / "paper.pdf"
+    pdf_path.write_bytes(PDF_BYTES)
+    static_resolver = StaticPdfResolver(pdf_path)
+
+    resolver = module.LibgenResolver(storage_dir=tmp_path, resolvers=[static_resolver])
+
+    assert resolver.fetch_text("10.1/legacy") == "--- PAGE 1 ---\nStatic resolver text"
+    assert resolver.fetch_pdf_bytes("10.1/legacy") == PDF_BYTES
+    assert static_resolver.calls == 2
+
+
+def test_legacy_libgen_wrapper_reports_oa_miss(tmp_path: Path) -> None:
+    module = libgen_integration_module()
+    resolver = module.LibgenResolver(storage_dir=tmp_path, resolvers=[])
+
+    with pytest.raises(module.LibgenResolverError, match="fontes OA suportadas"):
+        resolver.fetch_text("10.1/missing")
 
 
 def test_fulltext_cache_reuses_downloaded_pdf(monkeypatch, tmp_path: Path, repo: AlbertoRepository) -> None:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 import logging
 logger = logging.getLogger(__name__)
-from alberto.research.scihub_mcp import MCPSciHubResolver
 import hashlib
 import json
 import os
@@ -60,13 +59,7 @@ class PersistedDocument:
 
 class FullTextResolver:
     def __init__(self, resolvers: list[Resolver] | None = None):
-        from alberto.research.providers.scihub import SciHubResolver
-        from alberto.research.providers.scihub_http import SciHubHttpResolver
-        from alberto.research.providers.libgen import LibgenResolver
-        from alberto.research.providers.tesble import TesbleResolver
         self.resolvers = resolvers or [
-            # SciHubResolver(),
-            # MCPSciHubResolver(),
             ZoteroFullTextResolver(),
             UnpaywallResolver(),
             OpenAlexResolver(),
@@ -74,14 +67,12 @@ class FullTextResolver:
             DOAJResolver(),
             EuropePMCResolver(),
             ProviderUrlResolver(),
+            *optional_full_text_resolvers(),
             AbstractFallbackResolver(),
             MetadataFallbackResolver(),
-            TesbleResolver(),
-            LibgenResolver(),
-            SciHubHttpResolver(),
         ]
 
-        logger.info(f"FullTextResolver initialized with: {[r.__class__.__name__ for r in self.resolvers]}")
+        logger.info("FullTextResolver initialized with: %s", [resolver_name(resolver) for resolver in self.resolvers])
     def resolve(
         self,
         repo: AlbertoRepository,
@@ -112,7 +103,7 @@ class FullTextResolver:
             try:
                 resolved = resolver.resolve(record, config=config, storage_dir=directory)
             except Exception as exc:
-                errors.append(f"{resolver.name}:{exc}")
+                errors.append(f"{resolver_name(resolver)}:{exc}")
                 continue
             if resolved is not None:
                 provenance = dict(resolved.provenance)
@@ -437,11 +428,54 @@ def ordered_resolvers(resolvers: list[Resolver], config: dict) -> list[Resolver]
     configured_order = settings.get("resolver_order") or []
     if not isinstance(configured_order, list):
         return resolvers
-    by_name = {resolver.name: resolver for resolver in resolvers}
+    by_name = {resolver_name(resolver): resolver for resolver in resolvers}
     ordered = [by_name[name] for name in configured_order if isinstance(name, str) and name in by_name]
-    ordered_names = {resolver.name for resolver in ordered}
-    ordered.extend(resolver for resolver in resolvers if resolver.name not in ordered_names)
+    ordered_names = {resolver_name(resolver) for resolver in ordered}
+    ordered.extend(resolver for resolver in resolvers if resolver_name(resolver) not in ordered_names)
     return ordered
+
+
+def resolver_name(resolver: Resolver) -> str:
+    name = getattr(resolver, "name", None)
+    if isinstance(name, str) and name.strip():
+        return name
+    class_name = resolver.__class__.__name__
+    return class_name or "<unnamed_resolver>"
+
+
+def optional_full_text_resolvers() -> list[Resolver]:
+    resolvers: list[Resolver] = []
+    try:
+        from alberto.research.scihub_mcp import MCPSciHubResolver
+
+        resolvers.append(MCPSciHubResolver())
+    except Exception as exc:  # pragma: no cover - optional integration
+        logger.debug("MCPSciHubResolver unavailable: %s", exc)
+    try:
+        from alberto.research.providers.scihub import SciHubResolver
+
+        resolvers.append(SciHubResolver())
+    except Exception as exc:  # pragma: no cover - optional integration
+        logger.debug("SciHubResolver unavailable: %s", exc)
+    try:
+        from alberto.research.providers.tesble import TesbleResolver
+
+        resolvers.append(TesbleResolver())
+    except Exception as exc:  # pragma: no cover - optional integration
+        logger.debug("TesbleResolver unavailable: %s", exc)
+    try:
+        from alberto.research.providers.libgen import LibgenResolver
+
+        resolvers.append(LibgenResolver())
+    except Exception as exc:  # pragma: no cover - optional integration
+        logger.debug("LibgenResolver unavailable: %s", exc)
+    try:
+        from alberto.research.providers.scihub_http import SciHubHttpResolver
+
+        resolvers.append(SciHubHttpResolver())
+    except Exception as exc:  # pragma: no cover - optional integration
+        logger.debug("SciHubHttpResolver unavailable: %s", exc)
+    return resolvers
 
 
 def request_timeout(config: dict) -> int | float:

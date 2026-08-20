@@ -67,8 +67,6 @@ digest:
 timezone: Europe/Lisbon
 fulltext:
   enable_scihub: true
-
-fulltext:
   enable_scihub_mcp: true
 
 research_filters:

@@ -31,11 +31,11 @@ class MCPSciHubResolver:
         storage_dir: Path,
     ) -> Any:
         doi = record.doi
-        print(f"🔍 MCPSciHubResolver: CHAMADO para DOI {doi}")
+        logger.debug("MCPSciHubResolver: chamado para DOI %s", doi)
         if not doi:
             return None
 
-        enabled = config.get("enable_scihub_mcp", True)
+        enabled = config.get("enable_scihub_mcp", False)
         if not enabled:
             logger.debug("MCPSciHubResolver: desabilitado por configuração")
             return None

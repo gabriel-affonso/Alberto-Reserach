@@ -72,6 +72,8 @@ research_filters:
 autonomous_discovery:
   enabled: true
   seed_reading_limit: 20
+  target_full_text_readings: 10
+  max_research_iterations: 8
   max_dynamic_queries: 6
   max_queries_per_provider: 10
 
@@ -80,8 +82,8 @@ discovery_limits:
   semantic_scholar: 12
 
 screening_threshold: 0.45
-deep_reading_threshold: 0.35
-maximum_daily_deep_reads: 6
+deep_reading_threshold: 0.30
+maximum_daily_deep_reads: 10
 
 fulltext:
   enable_scihub: true
@@ -97,6 +99,11 @@ fulltext:
     - doaj
     - europepmc
     - provider_url
+    - scihub_mcp
+    - scihub
+    - tesble
+    - libgen
+    - scihub_http
     - abstract
     - metadata
   download_timeout: 30

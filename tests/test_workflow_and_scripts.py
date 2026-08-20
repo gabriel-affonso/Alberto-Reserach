@@ -7,6 +7,8 @@ from pathlib import Path
 
 from alberto.db.connection import connect
 from alberto.db.migrations import apply_migrations
+from alberto.enums import AccessLevel
+from alberto.research.fulltext import PersistedDocument, ResolvedDocument
 from alberto.research.models import DiscoveryResult, PaperRecord
 from alberto.research.providers.base import Provider
 from alberto.research.workflow import (
@@ -72,6 +74,21 @@ class RankedProvider(Provider):
         )
 
 
+class ExpandingFullTextProvider(Provider):
+    name = "crossref"
+
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
+    def search(self, query: str, *, limit: int, dry_run: bool = False):
+        self.queries.append(query)
+        if "second wave" in query:
+            record = PaperRecord(title="Full text two", abstract="agent sandbox second wave", doi="10.1/full-two")
+        else:
+            record = PaperRecord(title="Full text one", abstract="agent sandbox first wave", doi="10.1/full-one")
+        return DiscoveryResult(provider=self.name, query=query, records=(record,), dry_run=dry_run)
+
+
 class ArticleFilterProvider(Provider):
     name = "crossref"
 
@@ -124,6 +141,44 @@ def fake_reader(config: dict, record: PaperRecord) -> dict:
     }
 
 
+def full_text_reader(config: dict, record: PaperRecord, document: ResolvedDocument) -> dict:
+    return {
+        "access_level": document.access_level.value,
+        "bibliographic_information": {"title": record.title, "reader_agent": "research-reader"},
+        "research_question": config["research_question"],
+        "central_argument": record.abstract or "",
+        "methodology": "Full-text fixture reading",
+        "sources": ["fixture full text"],
+        "major_findings": [record.abstract or ""],
+        "concepts": ["second wave"] if "one" in record.title else ["complete"],
+        "relevance_to_project": "Relevant to project",
+        "connections": [],
+        "disagreements": [],
+        "references_to_follow": [],
+        "human_reading_recommended": False,
+        "confidence": 0.9,
+    }
+
+
+class FixtureFullTextResolver:
+    def resolve(self, repo, *, paper_id: int, record: PaperRecord, config: dict, storage_dir=None):
+        document = ResolvedDocument(
+            access_level=AccessLevel.FULL_TEXT,
+            source_type="PDF",
+            text=f"Full text for {record.title}",
+            uri=record.url,
+            provenance={"resolver": "fixture"},
+        )
+        document_id = repo.add_document(
+            paper_id=paper_id,
+            access_level=document.access_level,
+            source_type=document.source_type,
+            uri=document.uri,
+            provenance=document.provenance,
+        )
+        return PersistedDocument(document_id=document_id, resolved=document)
+
+
 def test_workflow_persists_run_and_candidates(tmp_path: Path) -> None:
     db_path = tmp_path / "alberto.sqlite3"
     run_id = run_research_workflow(
@@ -168,6 +223,42 @@ citation_chasing:
 digest:
   enabled: true
   max_items: 5
+timezone: Europe/Lisbon
+""",
+        encoding="utf-8",
+    )
+    return path
+
+
+def write_iterative_project(tmp_path: Path) -> Path:
+    path = tmp_path / "iterative-project.yaml"
+    path.write_text(
+        """
+id: iterative-workflow-test
+name: Iterative Workflow Test
+research_question: agent sandbox systems
+priority_topics:
+  - agent sandbox
+languages:
+  - en
+inclusion_terms:
+  - agent
+  - sandbox
+autonomous_discovery:
+  enabled: true
+  target_full_text_readings: 2
+  max_research_iterations: 3
+  max_dynamic_queries: 2
+  max_queries_per_provider: 6
+discovery_limits:
+  crossref: 2
+screening_threshold: 0.4
+deep_reading_threshold: 0.7
+maximum_daily_deep_reads: 1
+citation_chasing:
+  enabled: false
+digest:
+  enabled: true
 timezone: Europe/Lisbon
 """,
         encoding="utf-8",
@@ -299,6 +390,31 @@ def test_deep_reading_limit_and_reader_persistence(tmp_path: Path) -> None:
     assert "research-reader" in readings[0]["structured_json"]
     assert all(row["decision"] == "DEEP_READ" for row in screening_rows)
     assert all("semantic_screen" in row["provenance_json"] for row in screening_rows)
+    conn.close()
+
+
+def test_workflow_iterates_until_full_text_target(tmp_path: Path) -> None:
+    project_path = write_iterative_project(tmp_path)
+    db_path = tmp_path / "alberto.sqlite3"
+    provider = ExpandingFullTextProvider()
+
+    run_id = run_research_workflow(
+        project_path=project_path,
+        db_path=db_path,
+        providers=[provider],
+        semantic_screener=fake_semantic,
+        reader=full_text_reader,
+        full_text_resolver=FixtureFullTextResolver(),
+    )
+
+    conn = connect(db_path)
+    run = conn.execute("SELECT read_count FROM runs WHERE id=?", (run_id,)).fetchone()
+    full_text_count = conn.execute(
+        "SELECT COUNT(*) AS count FROM readings WHERE project_id='iterative-workflow-test' AND access_level='FULL_TEXT'"
+    ).fetchone()["count"]
+    assert run["read_count"] == 2
+    assert full_text_count == 2
+    assert any("second wave" in query for query in provider.queries)
     conn.close()
 
 

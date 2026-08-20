@@ -52,25 +52,29 @@ def build_queries(config: dict, seed_readings: Iterable[Any] | None = None) -> l
     question = _clean_query_part(config["research_question"])
     priority_topics = [_clean_query_part(term) for term in config.get("priority_topics", [])]
     inclusion_terms = [_clean_query_part(term) for term in config.get("inclusion_terms", [])]
+    priority_authors = [_clean_query_part(term) for term in config.get("priority_authors", [])]
     priority_topics = [term for term in priority_topics if term]
     inclusion_terms = [term for term in inclusion_terms if term]
+    priority_authors = [term for term in priority_authors if term]
 
     queries = [
         _compose_query(question, priority_topics[:2], inclusion_terms[:2]),
     ]
-    for topic in priority_topics[:3]:
+    for topic in priority_topics:
         queries.append(_compose_query(question, [topic], inclusion_terms[:2]))
-    if len(queries) < 4 and inclusion_terms:
-        queries.append(_compose_query(question, priority_topics[:1], inclusion_terms[:3]))
+    if autonomous_discovery_enabled(config):
+        for query in build_autonomous_queries(config, seed_readings or []):
+            if query and query not in queries:
+                queries.append(query)
+    for term in inclusion_terms:
+        queries.append(_compose_query(question, priority_topics[:1], [term]))
+    for author in priority_authors[:4]:
+        queries.append(_compose_query(question, [author], inclusion_terms[:1]))
 
     unique: list[str] = []
     for query in queries:
         if query and query not in unique:
             unique.append(query)
-    if autonomous_discovery_enabled(config):
-        for query in build_autonomous_queries(config, seed_readings or []):
-            if query and query not in unique:
-                unique.append(query)
     return unique[:max_queries_per_provider(config)]
 
 
@@ -185,117 +189,153 @@ def run_research_workflow(
     try:
         records = []
         processed_paper_ids: set[int] = set()
-        screened_candidates: list[ScreenedCandidate] = []
         deep_read_limit = int(config.get("maximum_daily_deep_reads", 0))
-        seed_readings = repo.recent_query_seed_readings(
-            config["id"],
-            limit=autonomous_seed_reading_limit(config),
-        )
-        discovery_queries = build_queries(config, seed_readings=seed_readings)
-        for provider in providers:
-            limit = int(config.get("discovery_limits", {}).get(provider.name, 10))
-            if limit <= 0:
-                continue
-            provider_names.append(provider.name)
-            for query in discovery_queries:
-                search_id = repo.create_search(config["id"], provider.name, query, {"limit": limit}, dry_run)
-                try:
-                    result = provider.search(query, limit=limit, dry_run=dry_run)
-                    repo.finish_search(search_id, "SUCCEEDED")
-                except Exception as exc:
-                    repo.finish_search(search_id, "FAILED", str(exc))
-                    errors.append(f"{provider.name}:{exc}")
+        target_full_text = target_full_text_readings(config)
+        max_iterations = max_research_iterations(config)
+        searched_pairs: set[tuple[str, str]] = set()
+
+        for iteration in range(max_iterations):
+            full_text_count = repo.reading_count(config["id"], access_level=AccessLevel.FULL_TEXT)
+            if target_full_text and full_text_count >= target_full_text:
+                break
+            screened_candidates: list[ScreenedCandidate] = []
+            seed_readings = repo.recent_query_seed_readings(
+                config["id"],
+                limit=autonomous_seed_reading_limit(config),
+            )
+            discovery_queries = build_queries(config, seed_readings=seed_readings)
+            searches_started = 0
+            for provider in providers:
+                limit = int(config.get("discovery_limits", {}).get(provider.name, 10))
+                if limit <= 0:
                     continue
-                for rank, record in enumerate(result.records, start=1):
-                    skip_reason = record_skip_reason(config, record)
-                    if skip_reason:
-                        LOG.info("skipping discovered record", extra={"title": record.title, "reason": skip_reason})
+                if provider.name not in provider_names:
+                    provider_names.append(provider.name)
+                for query in discovery_queries:
+                    search_key = (provider.name, query)
+                    if search_key in searched_pairs:
                         continue
-                    records.append(record)
-                    paper_id = repo.upsert_paper(record)
-                    repo.add_discovery(
-                        search_id,
-                        paper_id,
+                    searched_pairs.add(search_key)
+                    searches_started += 1
+                    search_id = repo.create_search(
+                        config["id"],
                         provider.name,
-                        record.doi or record.external_ids.get("paperId"),
-                        rank,
-                        record.provenance | result.provenance,
+                        query,
+                        {"limit": limit, "iteration": iteration + 1},
+                        dry_run,
                     )
-                    if paper_id in processed_paper_ids:
-                        continue
-                    if skip_previously_read_enabled(config) and repo.has_reading(config["id"], paper_id):
-                        continue
-                    processed_paper_ids.add(paper_id)
-
-                    pre_score = deterministic_screening_score(config, record.title, record.abstract)
-                    pre_decision = "MAYBE" if pre_score >= 0.25 else "REJECT"
-                    repo.add_screening(
-                        config["id"],
-                        paper_id,
-                        pre_score,
-                        pre_decision,
-                        "Deterministic keyword pre-screen",
-                        provenance={"stage": "cheap_pre_screen", "provider": provider.name},
-                    )
-
-                    if pre_decision == "REJECT":
-                        repo.set_paper_state(paper_id, LifecycleState.REJECTED)
-                        screened_count += 1
-                        continue
-
                     try:
-                        semantic = semantic_screener(config, record)
+                        result = provider.search(query, limit=limit, dry_run=dry_run)
+                        repo.finish_search(search_id, "SUCCEEDED")
                     except Exception as exc:
-                        errors.append(f"semantic_screen:{record.title}:{exc}")
-                        repo.set_paper_state(paper_id, LifecycleState.SCREENED)
-                        screened_count += 1
+                        repo.finish_search(search_id, "FAILED", str(exc))
+                        errors.append(f"{provider.name}:{exc}")
                         continue
-                    repo.add_screening(
-                        config["id"],
-                        paper_id,
-                        semantic.score,
-                        semantic.decision,
-                        semantic.rationale,
-                        model=SEMANTIC_SCREENING_MODEL,
-                        provenance={"stage": "semantic_screen", "model": SEMANTIC_SCREENING_MODEL},
-                    )
-                    screened_count += 1
-                    screened_candidates.append(ScreenedCandidate(paper_id, record, semantic))
-                    if semantic.decision == "REJECT":
-                        repo.set_paper_state(paper_id, LifecycleState.REJECTED)
-                    elif semantic.decision == "MAYBE":
-                        repo.set_paper_state(paper_id, LifecycleState.SCREENED)
-                    else:
-                        repo.set_paper_state(paper_id, LifecycleState.QUEUED)
+                    for rank, record in enumerate(result.records, start=1):
+                        skip_reason = record_skip_reason(config, record)
+                        if skip_reason:
+                            LOG.info("skipping discovered record", extra={"title": record.title, "reason": skip_reason})
+                            continue
+                        records.append(record)
+                        paper_id = repo.upsert_paper(record)
+                        repo.add_discovery(
+                            search_id,
+                            paper_id,
+                            provider.name,
+                            record.doi or record.external_ids.get("paperId"),
+                            rank,
+                            record.provenance | result.provenance,
+                        )
+                        if paper_id in processed_paper_ids:
+                            continue
+                        if skip_previously_read_enabled(config) and repo.has_reading(config["id"], paper_id):
+                            continue
+                        processed_paper_ids.add(paper_id)
 
-        eligible = [
-            candidate
-            for candidate in screened_candidates
-            if candidate.semantic.decision in {"DEEP_READ", "QUEUE"}
-            and candidate.semantic.score >= float(config["deep_reading_threshold"])
-        ]
-        eligible.sort(key=lambda candidate: candidate.semantic.score, reverse=True)
-        for candidate in eligible[:deep_read_limit]:
-            try:
-                persisted_document = full_text_resolver.resolve(
-                    repo,
-                    paper_id=candidate.paper_id,
-                    record=candidate.record,
-                    config=config,
-                    storage_dir=document_storage_dir,
-                )
-                structured = invoke_reader(reader, config, candidate.record, persisted_document.resolved)
-                repo.add_reading(
-                    config["id"],
-                    candidate.paper_id,
-                    structured,
-                    document_id=persisted_document.document_id,
-                )
-                read_count += 1
-            except Exception as exc:
-                errors.append(f"reader:{candidate.record.title}:{exc}")
-                repo.set_paper_state(candidate.paper_id, LifecycleState.QUEUED)
-                continue
+                        pre_score = deterministic_screening_score(config, record.title, record.abstract)
+                        pre_decision = "MAYBE" if pre_score >= 0.25 else "REJECT"
+                        repo.add_screening(
+                            config["id"],
+                            paper_id,
+                            pre_score,
+                            pre_decision,
+                            "Deterministic keyword pre-screen",
+                            provenance={"stage": "cheap_pre_screen", "provider": provider.name, "iteration": iteration + 1},
+                        )
+
+                        if pre_decision == "REJECT":
+                            repo.set_paper_state(paper_id, LifecycleState.REJECTED)
+                            screened_count += 1
+                            continue
+
+                        try:
+                            semantic = semantic_screener(config, record)
+                        except Exception as exc:
+                            errors.append(f"semantic_screen:{record.title}:{exc}")
+                            repo.set_paper_state(paper_id, LifecycleState.SCREENED)
+                            screened_count += 1
+                            continue
+                        repo.add_screening(
+                            config["id"],
+                            paper_id,
+                            semantic.score,
+                            semantic.decision,
+                            semantic.rationale,
+                            model=SEMANTIC_SCREENING_MODEL,
+                            provenance={"stage": "semantic_screen", "model": SEMANTIC_SCREENING_MODEL, "iteration": iteration + 1},
+                        )
+                        screened_count += 1
+                        screened_candidates.append(ScreenedCandidate(paper_id, record, semantic))
+                        if semantic.decision == "REJECT":
+                            repo.set_paper_state(paper_id, LifecycleState.REJECTED)
+                        elif semantic.decision == "MAYBE":
+                            repo.set_paper_state(paper_id, LifecycleState.SCREENED)
+                        else:
+                            repo.set_paper_state(paper_id, LifecycleState.QUEUED)
+
+            eligible = [
+                candidate
+                for candidate in screened_candidates
+                if candidate.semantic.decision in {"DEEP_READ", "QUEUE"}
+                and candidate.semantic.score >= float(config["deep_reading_threshold"])
+            ]
+            eligible.sort(key=lambda candidate: candidate.semantic.score, reverse=True)
+            for candidate in eligible[:deep_read_limit]:
+                if target_full_text and repo.reading_count(config["id"], access_level=AccessLevel.FULL_TEXT) >= target_full_text:
+                    break
+                try:
+                    persisted_document = full_text_resolver.resolve(
+                        repo,
+                        paper_id=candidate.paper_id,
+                        record=candidate.record,
+                        config=config,
+                        storage_dir=document_storage_dir,
+                    )
+                    structured = invoke_reader(reader, config, candidate.record, persisted_document.resolved)
+                    repo.add_reading(
+                        config["id"],
+                        candidate.paper_id,
+                        structured,
+                        document_id=persisted_document.document_id,
+                    )
+                    read_count += 1
+                except Exception as exc:
+                    errors.append(f"reader:{candidate.record.title}:{exc}")
+                    repo.set_paper_state(candidate.paper_id, LifecycleState.QUEUED)
+                    continue
+            if searches_started == 0:
+                break
+            if not target_full_text:
+                break
+            LOG.info(
+                "research iteration complete",
+                extra={
+                    "run_id": run_id,
+                    "iteration": iteration + 1,
+                    "full_text_readings": repo.reading_count(config["id"], access_level=AccessLevel.FULL_TEXT),
+                    "target_full_text_readings": target_full_text,
+                },
+            )
         candidate_count = len(dedupe_records(records))
         repo.finish_run(
             run_id,
@@ -306,7 +346,13 @@ def run_research_workflow(
             read_count=read_count,
             errors=errors,
         )
-        LOG.info("research workflow complete", extra={"run_id": run_id})
+        LOG.info(
+            "research workflow complete",
+            extra={
+                "run_id": run_id,
+                "full_text_readings": repo.reading_count(config["id"], access_level=AccessLevel.FULL_TEXT),
+            },
+        )
         return run_id
     except Exception as exc:
         repo.finish_run(
@@ -358,8 +404,19 @@ def max_queries_per_provider(config: dict) -> int:
     return positive_int(autonomous_discovery_config(config).get("max_queries_per_provider"), default=default)
 
 
+def max_research_iterations(config: dict) -> int:
+    default = 1
+    if target_full_text_readings(config):
+        default = 4
+    return positive_int(autonomous_discovery_config(config).get("max_research_iterations"), default=default)
+
+
 def autonomous_seed_reading_limit(config: dict) -> int:
     return positive_int(autonomous_discovery_config(config).get("seed_reading_limit"), default=20)
+
+
+def target_full_text_readings(config: dict) -> int:
+    return positive_int(autonomous_discovery_config(config).get("target_full_text_readings"), default=0)
 
 
 def positive_int(value: object, *, default: int) -> int:

@@ -218,6 +218,20 @@ class AlbertoRepository:
         ).fetchone()
         return row is not None
 
+    def reading_count(self, project_id: str, *, access_level: AccessLevel | str | None = None) -> int:
+        if access_level is None:
+            row = self.conn.execute(
+                "SELECT COUNT(*) AS count FROM readings WHERE project_id=?",
+                (project_id,),
+            ).fetchone()
+        else:
+            value = access_level.value if isinstance(access_level, AccessLevel) else str(access_level)
+            row = self.conn.execute(
+                "SELECT COUNT(*) AS count FROM readings WHERE project_id=? AND access_level=?",
+                (project_id, value),
+            ).fetchone()
+        return int(row["count"])
+
     def add_screening(
         self,
         project_id: str,

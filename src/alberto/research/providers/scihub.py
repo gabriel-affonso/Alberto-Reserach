@@ -12,6 +12,9 @@ class SciHubResolver(Resolver):
 
     def resolve(self, record: PaperRecord, *, config: dict, storage_dir: Path) -> ResolvedDocument | None:
         """Tenta obter o texto completo via Sci-Hub."""
+        if not config.get("enable_scihub", False):
+            logger.debug("SciHubResolver: desabilitado por configuração")
+            return None
         if not record.doi:
             logger.debug(f"SciHubResolver: sem DOI para {record.title}")
             return None
