@@ -1,0 +1,152 @@
+id: greek-tragedy-three-functions
+name: "Greek Tragedy: Political, Civic-Pedagogical, and Religious Functions"
+
+research_question: Which scholarly articles support, complicate, or challenge the thesis that the objectives of Greek tragedy in classical Athens were political, civic-pedagogical, and religious?
+
+priority_topics:
+  - political functions of Greek tragedy in democratic Athens
+  - civic pedagogy, paideia, citizenship, and audience formation in Greek tragedy
+  - religious, ritual, festival, and Dionysiac functions of Athenian tragedy
+  - tragedy, polis, democracy, civic ideology, and collective judgment
+  - tragedy as public education through myth, emotion, debate, and spectatorship
+  - Great Dionysia, dramatic festivals, cult, sacrifice, and civic religion
+  - tragic chorus, ritual performance, audience, and social memory
+  - religion and politics as intertwined functions in fifth-century Athenian drama
+  - tragedy and democratic deliberation, law, justice, empire, war, and civic conflict
+  - tragedy as a civic institution rather than only literary drama
+
+priority_authors:
+  - Simon Goldhill
+  - Christiane Sourvinou-Inwood
+  - Richard Seaford
+  - Jean-Pierre Vernant
+  - Pierre Vidal-Naquet
+  - John J. Winkler
+  - Froma Zeitlin
+  - Edith Hall
+  - Paul Cartledge
+  - Peter Wilson
+  - Rush Rehm
+  - Eric Csapo
+  - Helene P. Foley
+  - Mark Griffith
+  - P. E. Easterling
+  - Josh Beer
+  - Nicole Loraux
+  - David Wiles
+
+languages:
+  - en
+
+date_ranges:
+  start: 1970-01-01
+  end: 2026-12-31
+
+inclusion_terms:
+  - Greek tragedy
+  - Athenian tragedy
+  - classical Athens
+  - polis
+  - democracy
+  - politics
+  - political thought
+  - civic ideology
+  - civic education
+  - civic pedagogy
+  - paideia
+  - citizenship
+  - audience
+  - spectatorship
+  - collective judgment
+  - public discourse
+  - Dionysia
+  - Dionysus
+  - festival
+  - ritual
+  - religion
+  - civic religion
+  - cult
+  - chorus
+  - myth
+  - tragedy and democracy
+  - tragedy and religion
+  - tragedy and politics
+
+exclusion_terms:
+  - psychotherapy
+  - psychoanalysis
+  - film
+  - television
+  - Shakespeare
+  - modern theatre
+  - contemporary performance
+  - reception only
+  - adaptation only
+  - performance review
+  - book review
+  - review essay
+  - The Classical Weekly
+  - elementary education
+  - modern Greece
+
+research_filters:
+  article_only: true
+  skip_previously_read: true
+  excluded_doi_prefixes:
+    - "10.4324/"
+    - "10.1163/"
+    - "10.5040/"
+    - "10.1007/"
+
+autonomous_discovery:
+  enabled: true
+  seed_reading_limit: 40
+  target_full_text_readings: 20
+  max_research_iterations: 10
+  max_dynamic_queries: 10
+  max_queries_per_provider: 14
+
+discovery_limits:
+  crossref: 14
+  semantic_scholar: 10
+
+screening_threshold: 0.52
+deep_reading_threshold: 0.42
+maximum_daily_deep_reads: 20
+
+fulltext:
+  enable_scihub: true
+  enable_scihub_mcp: true
+  enable_annas_archive: false
+  unpaywall_email: "research@example.com"
+  core_api_key: ""
+  resolver_order:
+    - zotero
+    - unpaywall
+    - openalex
+    - core
+    - doaj
+    - europepmc
+    - provider_url
+    - scihub_mcp
+    - scihub
+    - tesble
+    - libgen
+    - scihub_http
+    - abstract
+    - metadata
+  download_timeout: 30
+  cache_dir: ".cache/fulltext"
+
+citation_chasing:
+  enabled: true
+  max_depth: 1
+  max_references_per_paper: 12
+
+digest:
+  enabled: true
+  delivery_time: "09:00"
+  max_items: 10
+  save_local: true
+
+timezone: Europe/Lisbon
