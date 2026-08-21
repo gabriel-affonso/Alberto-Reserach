@@ -118,6 +118,9 @@ def test_digest_reading_contains_useful_synthesis(repo: AlbertoRepository) -> No
 
     assert digest_id > 0
     assert "## Synthesized Readings" in body
+    assert "Nota em português: li o conjunto deste digest como um todo" in body
+    assert "Useful Reading" in body
+    assert "Reference A" in body
     assert "### Useful Reading" in body
     assert "- Central argument: Tragedy trained civic judgment through staged conflict." in body
     assert "- Relevance: Directly addresses civic pedagogy." in body

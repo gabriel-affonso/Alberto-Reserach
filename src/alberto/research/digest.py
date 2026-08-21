@@ -33,6 +33,9 @@ def generate_digest(
         "## Executive Summary",
         digest_summary_line(readings_count=len(readings), papers_count=len(papers)),
     ]
+    portuguese_note = portuguese_executive_note(readings, papers)
+    if portuguese_note:
+        lines.extend(["", portuguese_note])
     items: list[dict[str, Any]] = []
     changed: list[str] = []
     connections: list[str] = []
@@ -142,6 +145,132 @@ def digest_summary_line(*, readings_count: int, papers_count: int) -> str:
     if papers_count:
         return f"- {papers_count} newly discovered candidate paper(s) need reading; details below include DOI, venue and abstract when available."
     return "- No new reportable papers or readings were found in this cycle."
+
+
+def portuguese_executive_note(readings: list[Any], papers: list[Any]) -> str:
+    if readings:
+        access_counts: dict[str, int] = {}
+        titles: list[str] = []
+        title_counts: dict[str, int] = {}
+        priority_candidates: list[tuple[float, str]] = []
+        references: list[str] = []
+        evidence_texts: list[str] = []
+        review_like_count = 0
+        for reading in readings:
+            structured = safe_structured_json(reading["structured_json"])
+            title = clean_text(reading["title"])
+            titles.append(title)
+            title_counts[title] = title_counts.get(title, 0) + 1
+            access = clean_text(structured.get("access_level") or reading["access_level"])
+            access_counts[access] = access_counts.get(access, 0) + 1
+            confidence = float(structured.get("confidence", reading["confidence"]) or 0)
+            year = int(reading["publication_year"] or 0)
+            repeated_penalty = 0.15 if title_counts[title] > 1 else 0
+            priority_candidates.append((confidence + min(year, 2026) / 10000 - repeated_penalty, title))
+            evidence_texts.extend(
+                clean_text(value)
+                for value in [
+                    structured.get("central_argument"),
+                    structured.get("relevance_to_project") or structured.get("relevance"),
+                    *(structured.get("major_findings") or [])[:2],
+                    *(structured.get("connections") or [])[:2],
+                ]
+                if clean_text(value)
+            )
+            references.extend(clean_text(ref) for ref in (structured.get("references_to_follow") or []) if clean_text(ref))
+            review_signal = " ".join([title, *evidence_texts[-6:]]).lower()
+            if "review" in review_signal or "resenha" in review_signal:
+                review_like_count += 1
+
+        access_phrase = portuguese_access_phrase(access_counts)
+        themes = portuguese_theme_phrase(" ".join(evidence_texts).lower())
+        priorities = unique_sorted_titles(priority_candidates, limit=3)
+        priority_phrase = ", ".join(priorities) if priorities else "os itens de maior confiança"
+        refs = unique_values(references, limit=3)
+        reference_phrase = ", ".join(refs) if refs else "as referências indicadas pelos leitores"
+        caveat = ""
+        if review_like_count or any(count > 1 for count in title_counts.values()):
+            caveat = (
+                " Como vários achados vêm de resenhas ou de debates historiográficos repetidos, use-os como mapa de entrada "
+                "e priorize consultar as obras de base que eles apontam."
+            )
+        return (
+            f"Nota em português: li o conjunto deste digest como um todo: são {len(readings)} leituras analisadas, {access_phrase}. "
+            f"O principal recado é que {themes}. Para aproveitar melhor o material, eu priorizaria primeiro {priority_phrase}; "
+            f"depois, seguiria as pistas bibliográficas mais promissoras, especialmente {reference_phrase}.{caveat}"
+        )
+    if papers:
+        titles = ", ".join(unique_values([clean_text(paper["title"]) for paper in papers], limit=3))
+        return (
+            f"Nota em português: este ciclo encontrou {len(papers)} candidato(s), mas ainda sem leitura sintetizada. "
+            f"Vale começar por {titles or 'os candidatos com DOI e resumo mais completos'}, buscando texto completo antes de tirar conclusões fortes."
+        )
+    return ""
+
+
+def safe_structured_json(value: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def portuguese_access_phrase(access_counts: dict[str, int]) -> str:
+    labels = {
+        "FULL_TEXT": "de texto completo",
+        "PARTIAL_TEXT": "de texto parcial",
+        "ABSTRACT_ONLY": "baseadas apenas em resumo",
+        "METADATA_ONLY": "baseadas apenas em metadados",
+    }
+    parts = []
+    for access, count in sorted(access_counts.items(), key=lambda item: item[0]):
+        label = labels.get(access, access.lower())
+        parts.append(f"{count} {label}")
+    return "com " + ", ".join(parts) if parts else "com níveis de acesso variados"
+
+
+def portuguese_theme_phrase(text: str) -> str:
+    themes = []
+    if any(term in text for term in ("architecture", "architectural", "stage", "cavea", "proskenion", "temple", "orchestra")):
+        themes.append("a arquitetura e as condições materiais organizam a experiência teatral")
+    if any(term in text for term in ("actor", "actors", "chorus", "mask", "performer", "performance", "dance", "music")):
+        themes.append("atores, coro, música, corpo e visualidade precisam ser tratados como centrais, não acessórios")
+    if any(term in text for term in ("festival", "religious", "ritual", "sanctuary", "divine", "god", "gods")):
+        themes.append("o vínculo com festivais, ritual e religião continua sendo decisivo")
+    if any(term in text for term in ("roman", "ovid", "pantomime", "mime", "pompey")):
+        themes.append("a tradição romana amplia o projeto para sociabilidade, moralidade pública e espaços cívico-religiosos")
+    if any(term in text for term in ("historiography", "scholarship", "evidence", "archaeological", "visual evidence", "inscriptions")):
+        themes.append("as conclusões dependem de evidência fragmentária, visual, arqueológica e historiográfica")
+    if not themes:
+        return "o conjunto deve ser lido como um mapa inicial para separar achados fortes, lacunas e próximas leituras"
+    if len(themes) == 1:
+        return themes[0]
+    return "; ".join(themes[:-1]) + "; e " + themes[-1]
+
+
+def unique_sorted_titles(candidates: list[tuple[float, str]], limit: int) -> list[str]:
+    seen = set()
+    values = []
+    for _, title in sorted(candidates, reverse=True):
+        if title and title not in seen:
+            seen.add(title)
+            values.append(title)
+        if len(values) >= limit:
+            break
+    return values
+
+
+def unique_values(values: list[str], limit: int) -> list[str]:
+    seen = set()
+    unique = []
+    for value in values:
+        if value and value not in seen:
+            seen.add(value)
+            unique.append(value)
+        if len(unique) >= limit:
+            break
+    return unique
 
 
 def format_reading_item(reading: Any, structured: dict[str, Any], stable_ref: str) -> list[str]:
