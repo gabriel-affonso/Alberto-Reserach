@@ -349,6 +349,54 @@ def test_autonomous_query_generation_uses_prior_reading_seeds() -> None:
     assert any("Sourvinou-Inwood" in query for query in queries)
 
 
+def test_query_generation_uses_configured_discovery_queries() -> None:
+    queries = build_queries(
+        {
+            "research_question": "Greek tragedy as civic religion",
+            "priority_topics": ["festival institutions"],
+            "inclusion_terms": ["Athens"],
+            "discovery_queries": [
+                "Greek tragedy democracy polis audience",
+                "Sourvinou-Inwood tragedy religion Athens",
+            ],
+            "autonomous_discovery": {"max_queries_per_provider": 6},
+        }
+    )
+
+    assert "Greek tragedy democracy polis audience" in queries
+    assert "Sourvinou-Inwood tragedy religion Athens" in queries
+
+
+def test_autonomous_seed_queries_can_use_broad_contexts() -> None:
+    config = {
+        "research_question": "Which articles support the three objectives thesis?",
+        "priority_topics": ["political civic religious tragedy"],
+        "inclusion_terms": ["Greek tragedy"],
+        "autonomous_discovery": {
+            "enabled": True,
+            "max_dynamic_queries": 3,
+            "max_queries_per_provider": 6,
+            "seed_query_contexts": ["Greek tragedy", "tragedy Athens"],
+        },
+    }
+    seed_readings = [
+        {
+            "structured_json": json.dumps(
+                {
+                    "references_to_follow": ["Jon D. Mikalson Honor Thy Gods"],
+                    "connections": ["popular religion and civic practice"],
+                    "concepts": ["civic religion"],
+                }
+            )
+        }
+    ]
+
+    queries = build_queries(config, seed_readings=seed_readings)
+
+    assert "Greek tragedy Jon D. Mikalson Honor Thy Gods" in queries
+    assert any(query.startswith("tragedy Athens") for query in queries)
+
+
 def test_semantic_screening_scores_and_rationale() -> None:
     config = {
         "research_question": "agent sandbox systems",

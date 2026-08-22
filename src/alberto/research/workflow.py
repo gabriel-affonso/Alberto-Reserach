@@ -53,13 +53,19 @@ def build_queries(config: dict, seed_readings: Iterable[Any] | None = None) -> l
     priority_topics = [_clean_query_part(term) for term in config.get("priority_topics", [])]
     inclusion_terms = [_clean_query_part(term) for term in config.get("inclusion_terms", [])]
     priority_authors = [_clean_query_part(term) for term in config.get("priority_authors", [])]
+    configured_discovery_queries = config.get("discovery_queries", [])
+    if not isinstance(configured_discovery_queries, list):
+        configured_discovery_queries = []
+    discovery_queries = [_clean_query_part(term) for term in configured_discovery_queries]
     priority_topics = [term for term in priority_topics if term]
     inclusion_terms = [term for term in inclusion_terms if term]
     priority_authors = [term for term in priority_authors if term]
+    discovery_queries = [term for term in discovery_queries if term]
 
     queries = [
         _compose_query(question, priority_topics[:2], inclusion_terms[:2]),
     ]
+    queries.extend(discovery_queries)
     for topic in priority_topics:
         queries.append(_compose_query(question, [topic], inclusion_terms[:2]))
     if autonomous_discovery_enabled(config):
@@ -89,15 +95,28 @@ def _compose_query(question: str, priority_topics: list[str], inclusion_terms: l
 
 def build_autonomous_queries(config: dict, seed_readings: Iterable[Any]) -> list[str]:
     question = _clean_query_part(config["research_question"])
+    contexts = autonomous_seed_query_contexts(config, fallback=question)
     phrases = extract_autonomous_seed_phrases(seed_readings)
     queries: list[str] = []
     for phrase in phrases:
-        query = _compose_query(question, [phrase], [])
-        if query and query not in queries:
-            queries.append(query)
+        for context in contexts:
+            query = _compose_query(context, [phrase], [])
+            if query and query not in queries:
+                queries.append(query)
+            if len(queries) >= max_dynamic_queries(config):
+                break
         if len(queries) >= max_dynamic_queries(config):
             break
     return queries
+
+
+def autonomous_seed_query_contexts(config: dict, *, fallback: str) -> list[str]:
+    configured = autonomous_discovery_config(config).get("seed_query_contexts")
+    if not isinstance(configured, list):
+        return [fallback]
+    contexts = [_clean_query_part(value) for value in configured]
+    contexts = [context for context in contexts if context]
+    return contexts or [fallback]
 
 
 def extract_autonomous_seed_phrases(seed_readings: Iterable[Any]) -> list[str]:
@@ -111,7 +130,7 @@ def extract_autonomous_seed_phrases(seed_readings: Iterable[Any]) -> list[str]:
                 structured = {}
         if not isinstance(structured, dict):
             continue
-        for field in ("concepts", "references_to_follow", "major_findings"):
+        for field in ("references_to_follow", "concepts", "connections", "major_findings"):
             values = structured.get(field) or []
             if isinstance(values, str):
                 values = [values]

@@ -1,7 +1,7 @@
 id: greek-tragedy-three-functions
 name: "Greek Tragedy: Political, Civic-Pedagogical, and Religious Functions"
 
-research_question: Which scholarly articles support, complicate, or challenge the thesis that the objectives of Greek tragedy in classical Athens were political, civic-pedagogical, and religious?
+research_question: What scholarship explains how Greek tragedy in classical Athens worked politically, civic-pedagogically, and religiously, and how do these functions overlap or conflict?
 
 priority_topics:
   - political functions of Greek tragedy in democratic Athens
@@ -14,6 +14,8 @@ priority_topics:
   - religion and politics as intertwined functions in fifth-century Athenian drama
   - tragedy and democratic deliberation, law, justice, empire, war, and civic conflict
   - tragedy as a civic institution rather than only literary drama
+  - tragic supplication, asylum, burial, kinship, war, empire, and justice
+  - Aeschylus, Sophocles, Euripides, and civic-religious argument
 
 priority_authors:
   - Simon Goldhill
@@ -34,6 +36,12 @@ priority_authors:
   - Josh Beer
   - Nicole Loraux
   - David Wiles
+  - Victoria Wohl
+  - Robin Osborne
+  - Deborah Boedeker
+  - Robert Parker
+  - Albert Henrichs
+  - Charles Segal
 
 languages:
   - en
@@ -71,6 +79,34 @@ inclusion_terms:
   - tragedy and democracy
   - tragedy and religion
   - tragedy and politics
+  - Aeschylus Persians
+  - Aeschylus Eumenides
+  - Sophocles Antigone
+  - Sophocles Oedipus at Colonus
+  - Euripides Suppliants
+  - Euripides Heraclidae
+
+discovery_queries:
+  - Greek tragedy democracy polis audience
+  - Athenian tragedy civic education paideia
+  - tragedy Dionysia ritual religion Athens
+  - Greek tragedy civic ideology politics
+  - tragedy democracy deliberation Athens
+  - Greek tragedy popular religion ritual
+  - Athenian drama civic identity festival
+  - tragic chorus ritual civic community
+  - Aeschylus Eumenides democracy religion polis
+  - Aeschylus Persians Athens politics civic memory
+  - Sophocles Antigone law religion polis
+  - Sophocles Oedipus at Colonus Athens civic religion
+  - Euripides Suppliants democracy civic pedagogy
+  - Euripides Heraclidae Athens supplication civic ideology
+  - Goldhill Greek tragedy civic ideology
+  - Sourvinou-Inwood tragedy religion Athens
+  - Seaford tragedy ritual polis
+  - Winkler Greek drama civic audience
+  - Vernant Vidal-Naquet tragedy polis
+  - Foley tragedy politics religion Athens
 
 exclusion_terms:
   - psychotherapy
@@ -85,7 +121,6 @@ exclusion_terms:
   - performance review
   - book review
   - review essay
-  - The Classical Weekly
   - elementary education
   - modern Greece
 
@@ -103,15 +138,23 @@ autonomous_discovery:
   seed_reading_limit: 40
   target_full_text_readings: 20
   max_research_iterations: 10
-  max_dynamic_queries: 10
-  max_queries_per_provider: 14
+  max_dynamic_queries: 18
+  max_queries_per_provider: 24
+  seed_query_contexts:
+    - Greek tragedy
+    - Athenian tragedy
+    - tragedy Athens
+    - classical Athens drama
+    - tragedy polis
+    - tragedy ritual
+    - tragedy democracy
 
 discovery_limits:
-  crossref: 14
-  semantic_scholar: 10
+  crossref: 18
+  semantic_scholar: 8
 
-screening_threshold: 0.52
-deep_reading_threshold: 0.42
+screening_threshold: 0.45
+deep_reading_threshold: 0.32
 maximum_daily_deep_reads: 20
 
 fulltext:
