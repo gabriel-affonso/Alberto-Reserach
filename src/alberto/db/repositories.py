@@ -413,6 +413,74 @@ class AlbertoRepository:
             (digest_id,),
         ).fetchall()
 
+    def link_historical_digest_readings(self, project_id: str | None = None) -> int:
+        """Attach pre-Notion digest items to the reading they originally reported."""
+        project_filter = "" if project_id is None else "AND d.project_id=?"
+        params: tuple[str, ...] = () if project_id is None else (project_id,)
+        with self.conn:
+            before = self.conn.total_changes
+            self.conn.execute(
+                f"""
+                UPDATE digest_items
+                SET reading_id = (
+                  SELECT r.id
+                  FROM readings r
+                  JOIN digests d2 ON d2.id = digest_items.digest_id
+                  WHERE r.project_id = d2.project_id
+                    AND r.paper_id = digest_items.paper_id
+                    AND r.access_level != 'METADATA_ONLY'
+                    AND r.created_at <= digest_items.created_at
+                  ORDER BY r.created_at DESC, r.id DESC
+                  LIMIT 1
+                )
+                WHERE item_type = 'reading'
+                  AND reading_id IS NULL
+                  AND EXISTS (
+                    SELECT 1 FROM digests d
+                    WHERE d.id = digest_items.digest_id {project_filter}
+                  )
+                """,
+                params,
+            )
+            return self.conn.total_changes - before
+
+    def historical_digest_readings_for_notion(self, project_id: str | None = None) -> list[sqlite3.Row]:
+        project_filter = "" if project_id is None else "AND d.project_id=?"
+        params: tuple[str, ...] = () if project_id is None else (project_id,)
+        return self.conn.execute(
+            f"""
+            SELECT
+              di.id AS digest_item_id,
+              d.digest_date,
+              p.id AS paper_id,
+              p.title,
+              p.doi,
+              p.venue,
+              p.publication_year,
+              p.url,
+              pr.name AS project_name,
+              pr.id AS project_id,
+              r.access_level,
+              r.structured_json,
+              r.confidence,
+              COALESCE((
+                SELECT GROUP_CONCAT(a.name, ', ')
+                FROM paper_authors pa
+                JOIN authors a ON a.id = pa.author_id
+                WHERE pa.paper_id = p.id
+                ORDER BY pa.author_order
+              ), '') AS authors
+            FROM digest_items di
+            JOIN digests d ON d.id = di.digest_id
+            JOIN projects pr ON pr.id = d.project_id
+            JOIN papers p ON p.id = di.paper_id
+            JOIN readings r ON r.id = di.reading_id
+            WHERE di.item_type = 'reading' {project_filter}
+            ORDER BY d.digest_date DESC, di.created_at DESC, di.id DESC
+            """,
+            params,
+        ).fetchall()
+
     def notion_page_id(self, project_id: str, paper_id: int) -> str | None:
         row = self.conn.execute(
             "SELECT notion_page_id FROM notion_article_syncs WHERE project_id=? AND paper_id=?",

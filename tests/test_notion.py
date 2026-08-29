@@ -6,6 +6,7 @@ from alberto.research.models import PaperRecord
 from alberto.research.notion import (
     NotionAdapter,
     article_database_properties,
+    backfill_digest_readings_to_notion,
     notion_article_children,
     sync_digest_readings_to_notion,
 )
@@ -120,3 +121,37 @@ def test_notion_is_opt_in_and_schema_has_searchable_fields(monkeypatch) -> None:
     assert {"Article", "DOI", "Authors", "Digest date", "Central argument"}.issubset(properties)
     children = notion_article_children({"structured_json": '{"major_findings": ["Finding"]}'})
     assert children[0]["type"] == "heading_2"
+
+
+def test_backfill_links_pre_notion_digest_items_and_syncs_them(repo: AlbertoRepository) -> None:
+    config = project_config()
+    repo.upsert_project(config)
+    paper_id = repo.upsert_paper(PaperRecord(title="Historic reading", publication_year=2025))
+    reading_id = repo.add_reading(config["id"], paper_id, reading_payload())
+    digest_id = repo.create_digest(
+        config["id"],
+        None,
+        "2026-08-01",
+        "Historic digest",
+        "Body",
+        {},
+        [
+            {
+                "id": "historic-item",
+                "paper_id": paper_id,
+                "item_type": "reading",
+                "title": "Historic reading",
+                "body": "Body",
+                "stable_ref": "historic-item",
+            }
+        ],
+    )
+    repo.conn.execute("UPDATE digest_items SET reading_id=NULL WHERE digest_id=?", (digest_id,))
+    adapter = FakeNotionAdapter()
+
+    linked, report = backfill_digest_readings_to_notion(repo, adapter=adapter)  # type: ignore[arg-type]
+
+    assert linked == 1
+    assert report.created == 1
+    assert repo.digest_readings_for_notion(digest_id)[0]["paper_id"] == paper_id
+    assert repo.conn.execute("SELECT reading_id FROM digest_items WHERE id='historic-item'").fetchone()["reading_id"] == reading_id

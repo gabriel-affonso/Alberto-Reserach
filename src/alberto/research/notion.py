@@ -140,15 +140,51 @@ def sync_digest_readings_to_notion(
     adapter = adapter or NotionAdapter.from_project_config(config)
     if not adapter.configured:
         return NotionSyncReport(status="not_configured")
-    rows = repo.digest_readings_for_notion(digest_id)
+    return sync_notion_rows(
+        repo,
+        repo.digest_readings_for_notion(digest_id),
+        adapter=adapter,
+        default_project_id=config["id"],
+    )
+
+
+def backfill_digest_readings_to_notion(
+    repo: AlbertoRepository,
+    *,
+    adapter: NotionAdapter | None = None,
+    project_id: str | None = None,
+) -> tuple[int, NotionSyncReport]:
+    """Synchronize every historical reading that was included in a digest."""
+    adapter = adapter or NotionAdapter()
+    if not adapter.configured:
+        return 0, NotionSyncReport(status="not_configured")
+    linked = repo.link_historical_digest_readings(project_id)
+    return linked, sync_notion_rows(repo, repo.historical_digest_readings_for_notion(project_id), adapter=adapter)
+
+
+def sync_notion_rows(
+    repo: AlbertoRepository,
+    rows: list[Any],
+    *,
+    adapter: NotionAdapter,
+    default_project_id: str | None = None,
+) -> NotionSyncReport:
     if not rows:
         return NotionSyncReport(status="no_readings")
     try:
         data_source_id = adapter.resolved_data_source_id()
         created = updated = 0
+        synced_papers: set[tuple[str, int]] = set()
         for row in rows:
+            row_project_id = str(row["project_id"]) if "project_id" in row.keys() else default_project_id
+            if not row_project_id:
+                raise ValueError("Notion sync row is missing project id")
+            paper_key = (row_project_id, int(row["paper_id"]))
+            if paper_key in synced_papers:
+                continue
+            synced_papers.add(paper_key)
             properties = notion_article_properties(row)
-            existing_page_id = repo.notion_page_id(config["id"], int(row["paper_id"]))
+            existing_page_id = repo.notion_page_id(row_project_id, int(row["paper_id"]))
             if existing_page_id:
                 adapter.update_article_page(existing_page_id, properties)
                 updated += 1
@@ -157,14 +193,14 @@ def sync_digest_readings_to_notion(
                 page_id = adapter.create_article_page(data_source_id, properties, notion_article_children(row))
                 created += 1
             repo.record_notion_article_sync(
-                project_id=config["id"],
+                project_id=row_project_id,
                 paper_id=int(row["paper_id"]),
                 notion_page_id=page_id,
                 digest_item_id=str(row["digest_item_id"]),
             )
         return NotionSyncReport(status="synced", created=created, updated=updated)
     except (RuntimeError, KeyError, TypeError, ValueError) as exc:
-        LOG.warning("Notion synchronization failed for digest %s: %s", digest_id, exc)
+        LOG.warning("Notion synchronization failed: %s", exc)
         return NotionSyncReport(status="failed", error=str(exc))
 
 

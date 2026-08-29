@@ -13,7 +13,7 @@ from alberto.logging import configure_logging
 from alberto.openclaw.render import required_openclaw_paths
 from alberto.research.config import load_project_config
 from alberto.research.feedback import store_feedback
-from alberto.research.notion import NotionAdapter
+from alberto.research.notion import NotionAdapter, backfill_digest_readings_to_notion
 from alberto.research.workflow import run_digest_workflow, run_research_workflow
 
 
@@ -55,6 +55,9 @@ def main(argv: list[str] | None = None) -> int:
     notion_setup = notion_sub.add_parser("setup")
     notion_setup.add_argument("--parent-page-id", required=True)
     notion_setup.add_argument("--title", default="Alberto Research Library")
+    notion_backfill = notion_sub.add_parser("backfill")
+    notion_backfill.add_argument("--db")
+    notion_backfill.add_argument("--project-id")
 
     oc = sub.add_parser("openclaw")
     oc_sub = oc.add_subparsers(dest="openclaw_command", required=True)
@@ -101,6 +104,25 @@ def main(argv: list[str] | None = None) -> int:
         database = NotionAdapter().create_article_database(parent_page_id=args.parent_page_id, title=args.title)
         print(json.dumps({"database_id": database.database_id, "data_source_id": database.data_source_id}))
         return 0
+    if args.command == "notion" and args.notion_command == "backfill":
+        conn = connect(args.db)
+        apply_migrations(conn)
+        linked, report = backfill_digest_readings_to_notion(
+            AlbertoRepository(conn), project_id=args.project_id
+        )
+        conn.close()
+        print(
+            json.dumps(
+                {
+                    "linked": linked,
+                    "status": report.status,
+                    "created": report.created,
+                    "updated": report.updated,
+                    "error": report.error,
+                }
+            )
+        )
+        return 0 if report.status not in {"failed", "not_configured"} else 1
     if args.command == "openclaw" and args.openclaw_command == "verify-templates":
         missing = [str(path) for path in required_openclaw_paths() if not path.exists()]
         print(json.dumps({"ok": not missing, "missing": missing}))

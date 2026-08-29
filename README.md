@@ -53,3 +53,5 @@ Alberto can maintain a searchable Notion database containing every validated rea
 3. Copy the returned `data_source_id` to `NOTION_DATA_SOURCE_ID`, and set `notion.enabled: true` in the project YAML. On the production NUC, `ALBERTO_NOTION_ENABLED=1` is an equivalent environment-only switch.
 
 Future `alberto research digest` runs create a page for each new digest reading and update that same page when the article is read again. Candidate-only digest items are intentionally not sent to Notion.
+
+To archive digest readings that existed before Notion was enabled, run `alberto notion backfill --db "$ALBERTO_DB"`. It is idempotent and only includes readings that were actually represented in a digest.
