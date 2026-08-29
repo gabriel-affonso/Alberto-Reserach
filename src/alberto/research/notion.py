@@ -91,6 +91,36 @@ class NotionAdapter:
             raise RuntimeError("Notion database has no accessible data source")
         return data_source_id
 
+    def ensure_article_schema(self, data_source_id: str) -> None:
+        """Add Alberto's fields without removing existing user-created fields."""
+        source = self._request("GET", f"/data_sources/{data_source_id}")
+        existing = source.get("properties") if isinstance(source, dict) else None
+        if not isinstance(existing, dict):
+            raise RuntimeError("Notion data source did not return its property schema")
+        updates: dict[str, Any] = {}
+        article = existing.get("Article")
+        if article is not None and article.get("type") != "title":
+            raise RuntimeError("Notion property 'Article' exists but is not a title property")
+        if article is None:
+            title_property = next((value for value in existing.values() if value.get("type") == "title"), None)
+            if title_property and title_property.get("id"):
+                updates[str(title_property["id"])] = {"name": "Article"}
+            else:
+                updates["Article"] = {"title": {}}
+        for name, definition in article_database_properties().items():
+            if name == "Article":
+                continue
+            current = existing.get(name)
+            expected_type = next(iter(definition))
+            if current is None:
+                updates[name] = definition
+            elif current.get("type") != expected_type:
+                raise RuntimeError(
+                    f"Notion property '{name}' has type {current.get('type')!r}; expected {expected_type!r}"
+                )
+        if updates:
+            self._request("PATCH", f"/data_sources/{data_source_id}", json={"properties": updates})
+
     def create_article_page(self, data_source_id: str, properties: dict[str, Any], children: list[dict[str, Any]]) -> str:
         response = self._request(
             "POST",
@@ -173,6 +203,7 @@ def sync_notion_rows(
         return NotionSyncReport(status="no_readings")
     try:
         data_source_id = adapter.resolved_data_source_id()
+        adapter.ensure_article_schema(data_source_id)
         created = updated = 0
         synced_papers: set[tuple[str, int]] = set()
         for row in rows:

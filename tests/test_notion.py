@@ -51,9 +51,13 @@ class FakeNotionAdapter:
     def __init__(self) -> None:
         self.created: list[tuple[str, dict, list[dict]]] = []
         self.updated: list[tuple[str, dict]] = []
+        self.schema_sources: list[str] = []
 
     def resolved_data_source_id(self) -> str:
         return "source-1"
+
+    def ensure_article_schema(self, data_source_id: str) -> None:
+        self.schema_sources.append(data_source_id)
 
     def create_article_page(self, data_source_id: str, properties: dict, children: list[dict]) -> str:
         self.created.append((data_source_id, properties, children))
@@ -90,6 +94,7 @@ def test_sync_creates_one_notion_page_per_digest_reading(repo: AlbertoRepository
     assert report.status == "synced"
     assert report.created == 1
     assert adapter.created[0][0] == "source-1"
+    assert adapter.schema_sources == ["source-1"]
     properties = adapter.created[0][1]
     assert properties["Article"]["title"][0]["text"]["content"] == "A Notion-ready article"
     assert properties["Authors"]["rich_text"][0]["text"]["content"] == "Ada Lovelace, Grace Hopper"
@@ -121,6 +126,31 @@ def test_notion_is_opt_in_and_schema_has_searchable_fields(monkeypatch) -> None:
     assert {"Article", "DOI", "Authors", "Digest date", "Central argument"}.issubset(properties)
     children = notion_article_children({"structured_json": '{"major_findings": ["Finding"]}'})
     assert children[0]["type"] == "heading_2"
+
+
+def test_existing_notion_database_schema_is_completed_without_removing_fields(monkeypatch) -> None:
+    adapter = NotionAdapter(api_key="notion-secret", data_source_id="source-1")
+    requests: list[tuple[str, str, dict]] = []
+
+    def fake_request(method: str, path: str, **kwargs):
+        requests.append((method, path, kwargs))
+        if method == "GET":
+            return {
+                "properties": {
+                    "Name": {"id": "title-id", "type": "title", "title": {}},
+                    "Personal note": {"id": "note-id", "type": "rich_text", "rich_text": {}},
+                }
+            }
+        return {}
+
+    monkeypatch.setattr(adapter, "_request", fake_request)
+    adapter.ensure_article_schema("source-1")
+
+    assert requests[1][0:2] == ("PATCH", "/data_sources/source-1")
+    updates = requests[1][2]["json"]["properties"]
+    assert updates["title-id"] == {"name": "Article"}
+    assert "Personal note" not in updates
+    assert {"DOI", "Confidence", "Digest date"}.issubset(updates)
 
 
 def test_backfill_links_pre_notion_digest_items_and_syncs_them(repo: AlbertoRepository) -> None:
