@@ -100,7 +100,7 @@ export SMTP_FROM=...
 export SMTP_TO=...
 ```
 
-Notion archive requires an internal integration with access to a parent page. Set `NOTION_API_KEY`, run `alberto notion setup --parent-page-id <page-id>`, then store the returned `NOTION_DATA_SOURCE_ID` and enable `notion.enabled` in the project YAML.
+Notion archive requires an internal integration with access to a parent page. Set `NOTION_API_KEY`, run `alberto notion setup --parent-page-id <page-id>`, then store the returned `NOTION_DATA_SOURCE_ID`. For the production pipeline, set `ALBERTO_NOTION_ENABLED=1` in the service environment; this avoids changing a version-controlled project YAML.
 
 For Gmail or Google Workspace, use an app password rather than your account password. Local digest saving works without Zotero, email or Notion credentials.
 

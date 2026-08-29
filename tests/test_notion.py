@@ -110,8 +110,12 @@ def test_sync_updates_an_existing_article_page(repo: AlbertoRepository) -> None:
     assert adapter.updated[0][0] == "existing-page"
 
 
-def test_notion_is_opt_in_and_schema_has_searchable_fields() -> None:
+def test_notion_is_opt_in_and_schema_has_searchable_fields(monkeypatch) -> None:
     assert not NotionAdapter.from_project_config({}).configured
+    monkeypatch.setenv("ALBERTO_NOTION_ENABLED", "1")
+    monkeypatch.setenv("NOTION_DATABASE_ID", "database-1")
+    monkeypatch.setenv("NOTION_API_KEY", "notion-secret")
+    assert NotionAdapter.from_project_config({}).configured
     properties = article_database_properties()
     assert {"Article", "DOI", "Authors", "Digest date", "Central argument"}.issubset(properties)
     children = notion_article_children({"structured_json": '{"major_findings": ["Finding"]}'})

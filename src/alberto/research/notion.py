@@ -50,7 +50,8 @@ class NotionAdapter:
         settings = config.get("notion") or {}
         if not isinstance(settings, dict):
             settings = {}
-        if settings.get("enabled") is not True:
+        enabled_by_environment = os.environ.get("ALBERTO_NOTION_ENABLED") == "1"
+        if settings.get("enabled") is not True and not enabled_by_environment:
             return cls(api_key="", data_source_id="", database_id="")
         return cls(
             data_source_id=settings.get("data_source_id"),
