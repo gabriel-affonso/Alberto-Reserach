@@ -481,6 +481,67 @@ class AlbertoRepository:
             params,
         ).fetchall()
 
+    def all_readings_for_notion(self, project_id: str | None = None) -> list[sqlite3.Row]:
+        project_filter = "" if project_id is None else "AND r.project_id=?"
+        params: tuple[str, ...] = () if project_id is None else (project_id,)
+        return self.conn.execute(
+            f"""
+            SELECT
+              (
+                SELECT di.id
+                FROM digest_items di
+                JOIN digests d ON d.id = di.digest_id
+                WHERE di.paper_id = p.id
+                  AND di.item_type = 'reading'
+                  AND d.project_id = r.project_id
+                ORDER BY d.digest_date DESC, di.created_at DESC, di.id DESC
+                LIMIT 1
+              ) AS digest_item_id,
+              (
+                SELECT d.digest_date
+                FROM digest_items di
+                JOIN digests d ON d.id = di.digest_id
+                WHERE di.paper_id = p.id
+                  AND di.item_type = 'reading'
+                  AND d.project_id = r.project_id
+                ORDER BY d.digest_date DESC, di.created_at DESC, di.id DESC
+                LIMIT 1
+              ) AS digest_date,
+              p.id AS paper_id,
+              p.title,
+              p.doi,
+              p.venue,
+              p.publication_year,
+              p.url,
+              pr.name AS project_name,
+              pr.id AS project_id,
+              r.access_level,
+              r.structured_json,
+              r.confidence,
+              COALESCE((
+                SELECT GROUP_CONCAT(a.name, ', ')
+                FROM paper_authors pa
+                JOIN authors a ON a.id = pa.author_id
+                WHERE pa.paper_id = p.id
+                ORDER BY pa.author_order
+              ), '') AS authors
+            FROM readings r
+            JOIN projects pr ON pr.id = r.project_id
+            JOIN papers p ON p.id = r.paper_id
+            WHERE r.access_level != 'METADATA_ONLY'
+              {project_filter}
+              AND r.id = (
+                SELECT MAX(r2.id)
+                FROM readings r2
+                WHERE r2.project_id = r.project_id
+                  AND r2.paper_id = r.paper_id
+                  AND r2.access_level != 'METADATA_ONLY'
+              )
+            ORDER BY r.created_at DESC, r.id DESC
+            """,
+            params,
+        ).fetchall()
+
     def notion_page_id(self, project_id: str, paper_id: int) -> str | None:
         row = self.conn.execute(
             "SELECT notion_page_id FROM notion_article_syncs WHERE project_id=? AND paper_id=?",
@@ -494,7 +555,7 @@ class AlbertoRepository:
         project_id: str,
         paper_id: int,
         notion_page_id: str,
-        digest_item_id: str,
+        digest_item_id: str | None,
     ) -> None:
         with self.conn:
             self.conn.execute(

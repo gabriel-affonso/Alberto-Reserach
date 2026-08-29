@@ -189,7 +189,7 @@ def backfill_digest_readings_to_notion(
     if not adapter.configured:
         return 0, NotionSyncReport(status="not_configured")
     linked = repo.link_historical_digest_readings(project_id)
-    return linked, sync_notion_rows(repo, repo.historical_digest_readings_for_notion(project_id), adapter=adapter)
+    return linked, sync_notion_rows(repo, repo.all_readings_for_notion(project_id), adapter=adapter)
 
 
 def sync_notion_rows(
@@ -227,7 +227,7 @@ def sync_notion_rows(
                 project_id=row_project_id,
                 paper_id=int(row["paper_id"]),
                 notion_page_id=page_id,
-                digest_item_id=str(row["digest_item_id"]),
+                digest_item_id=str(row["digest_item_id"]) if row["digest_item_id"] else None,
             )
         return NotionSyncReport(status="synced", created=created, updated=updated)
     except (RuntimeError, KeyError, TypeError, ValueError) as exc:
@@ -255,6 +255,7 @@ def article_database_properties() -> dict[str, Any]:
 
 def notion_article_properties(row: Any) -> dict[str, Any]:
     structured = structured_reading(row["structured_json"])
+    digest_date = clean_text(row["digest_date"])
     return {
         "Article": {"title": text_blocks(row["title"])},
         "Project": {"rich_text": text_blocks(row["project_name"])},
@@ -265,7 +266,7 @@ def notion_article_properties(row: Any) -> dict[str, Any]:
         "URL": {"url": clean_text(row["url"]) or None},
         "Read access": {"select": {"name": clean_text(row["access_level"]) or "METADATA_ONLY"}},
         "Confidence": {"number": float(row["confidence"])},
-        "Digest date": {"date": {"start": str(row["digest_date"])}},
+        "Digest date": {"date": {"start": digest_date} if digest_date else None},
         "Digest reference": {"rich_text": text_blocks(row["digest_item_id"])},
         "Central argument": {"rich_text": text_blocks(structured.get("central_argument"))},
         "Relevance": {"rich_text": text_blocks(structured.get("relevance_to_project") or structured.get("relevance"))},

@@ -185,3 +185,38 @@ def test_backfill_links_pre_notion_digest_items_and_syncs_them(repo: AlbertoRepo
     assert report.created == 1
     assert repo.digest_readings_for_notion(digest_id)[0]["paper_id"] == paper_id
     assert repo.conn.execute("SELECT reading_id FROM digest_items WHERE id='historic-item'").fetchone()["reading_id"] == reading_id
+
+
+def test_backfill_includes_readings_that_were_not_promoted_to_a_digest(repo: AlbertoRepository) -> None:
+    config = project_config()
+    repo.upsert_project(config)
+    digest_paper_id = repo.upsert_paper(PaperRecord(title="Reported reading", publication_year=2025))
+    unreported_paper_id = repo.upsert_paper(PaperRecord(title="Unreported reading", publication_year=2025))
+    reported_reading_id = repo.add_reading(config["id"], digest_paper_id, reading_payload())
+    repo.add_reading(config["id"], unreported_paper_id, reading_payload())
+    repo.create_digest(
+        config["id"],
+        None,
+        "2026-08-02",
+        "Historic digest",
+        "Body",
+        {},
+        [
+            {
+                "id": "reported-item",
+                "paper_id": digest_paper_id,
+                "reading_id": reported_reading_id,
+                "item_type": "reading",
+                "title": "Reported reading",
+                "body": "Body",
+                "stable_ref": "reported-item",
+            }
+        ],
+    )
+    adapter = FakeNotionAdapter()
+
+    _, report = backfill_digest_readings_to_notion(repo, adapter=adapter)  # type: ignore[arg-type]
+
+    assert report.created == 2
+    properties = {page[1]["Article"]["title"][0]["text"]["content"]: page[1] for page in adapter.created}
+    assert properties["Unreported reading"]["Digest date"]["date"] is None
