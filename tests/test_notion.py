@@ -1,0 +1,118 @@
+from __future__ import annotations
+
+from alberto.db.repositories import AlbertoRepository
+from alberto.research.digest import generate_digest
+from alberto.research.models import PaperRecord
+from alberto.research.notion import (
+    NotionAdapter,
+    article_database_properties,
+    notion_article_children,
+    sync_digest_readings_to_notion,
+)
+
+
+def project_config() -> dict:
+    return {
+        "id": "notion-project",
+        "name": "Notion Project",
+        "research_question": "Question?",
+        "priority_topics": [],
+        "languages": ["en"],
+        "discovery_limits": {},
+        "screening_threshold": 0.5,
+        "deep_reading_threshold": 0.8,
+        "maximum_daily_deep_reads": 1,
+        "citation_chasing": {},
+        "digest": {},
+        "timezone": "Europe/Lisbon",
+        "notion": {"enabled": True},
+    }
+
+
+def reading_payload() -> dict:
+    return {
+        "access_level": "FULL_TEXT",
+        "confidence": 0.85,
+        "central_argument": "The central claim.",
+        "methodology": "Close reading.",
+        "major_findings": ["First finding"],
+        "concepts": [],
+        "relevance_to_project": "Directly relevant.",
+        "connections": ["A useful connection"],
+        "disagreements": [],
+        "references_to_follow": ["A reference"],
+    }
+
+
+class FakeNotionAdapter:
+    configured = True
+
+    def __init__(self) -> None:
+        self.created: list[tuple[str, dict, list[dict]]] = []
+        self.updated: list[tuple[str, dict]] = []
+
+    def resolved_data_source_id(self) -> str:
+        return "source-1"
+
+    def create_article_page(self, data_source_id: str, properties: dict, children: list[dict]) -> str:
+        self.created.append((data_source_id, properties, children))
+        return "page-1"
+
+    def update_article_page(self, page_id: str, properties: dict) -> None:
+        self.updated.append((page_id, properties))
+
+
+def digest_with_reading(repo: AlbertoRepository) -> tuple[dict, int, int]:
+    config = project_config()
+    repo.upsert_project(config)
+    paper_id = repo.upsert_paper(
+        PaperRecord(
+            title="A Notion-ready article",
+            doi="10.1000/notion",
+            authors=("Ada Lovelace", "Grace Hopper"),
+            venue="Journal of Archives",
+            publication_year=2026,
+            url="https://example.test/article",
+        )
+    )
+    repo.add_reading(config["id"], paper_id, reading_payload())
+    digest_id, _ = generate_digest(repo, project_id=config["id"], project_name=config["name"], digest_date="2026-08-29")
+    return config, paper_id, digest_id
+
+
+def test_sync_creates_one_notion_page_per_digest_reading(repo: AlbertoRepository) -> None:
+    config, paper_id, digest_id = digest_with_reading(repo)
+    adapter = FakeNotionAdapter()
+
+    report = sync_digest_readings_to_notion(repo, config=config, digest_id=digest_id, adapter=adapter)  # type: ignore[arg-type]
+
+    assert report.status == "synced"
+    assert report.created == 1
+    assert adapter.created[0][0] == "source-1"
+    properties = adapter.created[0][1]
+    assert properties["Article"]["title"][0]["text"]["content"] == "A Notion-ready article"
+    assert properties["Authors"]["rich_text"][0]["text"]["content"] == "Ada Lovelace, Grace Hopper"
+    assert repo.notion_page_id(config["id"], paper_id) == "page-1"
+
+
+def test_sync_updates_an_existing_article_page(repo: AlbertoRepository) -> None:
+    config, paper_id, digest_id = digest_with_reading(repo)
+    digest_item_id = repo.digest_readings_for_notion(digest_id)[0]["digest_item_id"]
+    repo.record_notion_article_sync(
+        project_id=config["id"], paper_id=paper_id, notion_page_id="existing-page", digest_item_id=digest_item_id
+    )
+    adapter = FakeNotionAdapter()
+
+    report = sync_digest_readings_to_notion(repo, config=config, digest_id=digest_id, adapter=adapter)  # type: ignore[arg-type]
+
+    assert report.updated == 1
+    assert not adapter.created
+    assert adapter.updated[0][0] == "existing-page"
+
+
+def test_notion_is_opt_in_and_schema_has_searchable_fields() -> None:
+    assert not NotionAdapter.from_project_config({}).configured
+    properties = article_database_properties()
+    assert {"Article", "DOI", "Authors", "Digest date", "Central argument"}.issubset(properties)
+    children = notion_article_children({"structured_json": '{"major_findings": ["Finding"]}'})
+    assert children[0]["type"] == "heading_2"

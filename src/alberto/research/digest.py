@@ -73,6 +73,7 @@ def generate_digest(
             {
                 "id": item_id,
                 "paper_id": paper_id,
+                "reading_id": int(reading["reading_id"]),
                 "item_type": "reading",
                 "title": title,
                 "body": body,

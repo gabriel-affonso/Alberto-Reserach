@@ -42,4 +42,14 @@ alberto research digest --project projects/example-research.yaml
 
 ## Integrations
 
-Zotero and email delivery are optional. Configure them using environment variables copied from `.env.example`; no credentials are required for local digest generation or tests.
+Zotero, email delivery and the Notion archive are optional. Configure them using environment variables copied from `.env.example`; no credentials are required for local digest generation or tests.
+
+## Notion Archive
+
+Alberto can maintain a searchable Notion database containing every validated reading that was included in a digest. SQLite remains the operational source of truth; Notion is a consultation archive.
+
+1. Create a Notion internal integration and share an empty parent page with it.
+2. Set `NOTION_API_KEY` and run `alberto notion setup --parent-page-id <page-id>`.
+3. Copy the returned `data_source_id` to `NOTION_DATA_SOURCE_ID`, and set `notion.enabled: true` in the project YAML.
+
+Future `alberto research digest` runs create a page for each new digest reading and update that same page when the article is read again. Candidate-only digest items are intentionally not sent to Notion.

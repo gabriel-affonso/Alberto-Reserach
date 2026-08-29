@@ -111,6 +111,12 @@ Acceptance criteria:
 
 Completion note: Zotero Web API and delivery adapters are implemented; live Zotero/email verification is optional and credential-gated.
 
+## M8.1 - Notion Digest Archive
+
+- Optional Notion setup command creates an article archive database under a user-shared parent page.
+- Each validated reading included in a digest is mirrored as one idempotently updated Notion page, with bibliographic data and structured synthesis.
+- SQLite records Notion page mappings; missing credentials or a sync failure never prevents the local digest from being saved or delivered.
+
 ## M9 - OpenClaw Packaging
 
 Status: complete-with-local-openclaw-verification-pending

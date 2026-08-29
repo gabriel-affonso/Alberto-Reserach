@@ -15,6 +15,7 @@ from alberto.research.delivery import configured_delivery
 from alberto.research.dedupe import dedupe_records
 from alberto.research.digest import generate_digest, save_digest
 from alberto.research.fulltext import FullTextResolver, PersistedDocument, ResolvedDocument
+from alberto.research.notion import sync_digest_readings_to_notion
 from alberto.research.models import PaperRecord
 from alberto.research.openclaw import invoke_openclaw_json
 from alberto.research.providers import CrossrefProvider, Provider, SemanticScholarProvider
@@ -675,6 +676,7 @@ def run_digest_workflow(
     path = save_digest(body, output_dir or Path("data/digests"), config["id"], digest_id)
     subject = digest_email_subject(body, fallback=f"{config['name']} Research Digest")
     configured_delivery().deliver(subject=subject, body=body, local_path=path)
+    sync_digest_readings_to_notion(repo, config=config, digest_id=digest_id)
     conn.close()
     return digest_id, path
 

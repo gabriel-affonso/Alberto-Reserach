@@ -13,6 +13,7 @@ from alberto.logging import configure_logging
 from alberto.openclaw.render import required_openclaw_paths
 from alberto.research.config import load_project_config
 from alberto.research.feedback import store_feedback
+from alberto.research.notion import NotionAdapter
 from alberto.research.workflow import run_digest_workflow, run_research_workflow
 
 
@@ -48,6 +49,12 @@ def main(argv: list[str] | None = None) -> int:
     feedback.add_argument("--digest-item-id")
     feedback.add_argument("--paper-id", type=int)
     feedback.add_argument("--note")
+
+    notion = sub.add_parser("notion")
+    notion_sub = notion.add_subparsers(dest="notion_command", required=True)
+    notion_setup = notion_sub.add_parser("setup")
+    notion_setup.add_argument("--parent-page-id", required=True)
+    notion_setup.add_argument("--title", default="Alberto Research Library")
 
     oc = sub.add_parser("openclaw")
     oc_sub = oc.add_subparsers(dest="openclaw_command", required=True)
@@ -89,6 +96,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         conn.close()
         print(json.dumps({"feedback_id": feedback_id}))
+        return 0
+    if args.command == "notion" and args.notion_command == "setup":
+        database = NotionAdapter().create_article_database(parent_page_id=args.parent_page_id, title=args.title)
+        print(json.dumps({"database_id": database.database_id, "data_source_id": database.data_source_id}))
         return 0
     if args.command == "openclaw" and args.openclaw_command == "verify-templates":
         missing = [str(path) for path in required_openclaw_paths() if not path.exists()]

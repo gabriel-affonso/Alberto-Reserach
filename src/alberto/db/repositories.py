@@ -363,13 +363,14 @@ class AlbertoRepository:
             for item in items:
                 self.conn.execute(
                     """
-                    INSERT OR IGNORE INTO digest_items(id, digest_id, paper_id, item_type, title, body, stable_ref)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT OR IGNORE INTO digest_items(id, digest_id, paper_id, reading_id, item_type, title, body, stable_ref)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         item["id"],
                         digest_id,
                         item.get("paper_id"),
+                        item.get("reading_id"),
                         item["item_type"],
                         item["title"],
                         item["body"],
@@ -377,6 +378,68 @@ class AlbertoRepository:
                     ),
                 )
             return digest_id
+
+    def digest_readings_for_notion(self, digest_id: int) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            """
+            SELECT
+              di.id AS digest_item_id,
+              d.digest_date,
+              p.id AS paper_id,
+              p.title,
+              p.doi,
+              p.venue,
+              p.publication_year,
+              p.url,
+              pr.name AS project_name,
+              r.access_level,
+              r.structured_json,
+              r.confidence,
+              COALESCE((
+                SELECT GROUP_CONCAT(a.name, ', ')
+                FROM paper_authors pa
+                JOIN authors a ON a.id = pa.author_id
+                WHERE pa.paper_id = p.id
+                ORDER BY pa.author_order
+              ), '') AS authors
+            FROM digest_items di
+            JOIN digests d ON d.id = di.digest_id
+            JOIN projects pr ON pr.id = d.project_id
+            JOIN papers p ON p.id = di.paper_id
+            JOIN readings r ON r.id = di.reading_id
+            WHERE di.digest_id = ? AND di.item_type = 'reading'
+            ORDER BY di.id
+            """,
+            (digest_id,),
+        ).fetchall()
+
+    def notion_page_id(self, project_id: str, paper_id: int) -> str | None:
+        row = self.conn.execute(
+            "SELECT notion_page_id FROM notion_article_syncs WHERE project_id=? AND paper_id=?",
+            (project_id, paper_id),
+        ).fetchone()
+        return str(row["notion_page_id"]) if row else None
+
+    def record_notion_article_sync(
+        self,
+        *,
+        project_id: str,
+        paper_id: int,
+        notion_page_id: str,
+        digest_item_id: str,
+    ) -> None:
+        with self.conn:
+            self.conn.execute(
+                """
+                INSERT INTO notion_article_syncs(project_id, paper_id, notion_page_id, last_digest_item_id, last_synced_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(project_id, paper_id) DO UPDATE SET
+                  notion_page_id=excluded.notion_page_id,
+                  last_digest_item_id=excluded.last_digest_item_id,
+                  last_synced_at=excluded.last_synced_at
+                """,
+                (project_id, paper_id, notion_page_id, digest_item_id, utc_now()),
+            )
 
     def add_feedback(
         self,
@@ -424,6 +487,7 @@ class AlbertoRepository:
             """
             SELECT
               p.id AS paper_id,
+              r.id AS reading_id,
               p.title,
               p.doi,
               p.abstract,
