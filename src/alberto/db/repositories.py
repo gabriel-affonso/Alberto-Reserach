@@ -384,17 +384,21 @@ class AlbertoRepository:
             """
             SELECT
               di.id AS digest_item_id,
+              di.item_type,
+              di.body AS digest_body,
               d.digest_date,
               p.id AS paper_id,
               p.title,
               p.doi,
+              p.abstract,
               p.venue,
               p.publication_year,
               p.url,
               pr.name AS project_name,
-              r.access_level,
-              r.structured_json,
-              r.confidence,
+              pr.id AS project_id,
+              COALESCE(r.access_level, 'METADATA_ONLY') AS access_level,
+              COALESCE(r.structured_json, '{}') AS structured_json,
+              COALESCE(r.confidence, 0) AS confidence,
               COALESCE((
                 SELECT GROUP_CONCAT(a.name, ', ')
                 FROM paper_authors pa
@@ -406,8 +410,8 @@ class AlbertoRepository:
             JOIN digests d ON d.id = di.digest_id
             JOIN projects pr ON pr.id = d.project_id
             JOIN papers p ON p.id = di.paper_id
-            JOIN readings r ON r.id = di.reading_id
-            WHERE di.digest_id = ? AND di.item_type = 'reading'
+            LEFT JOIN readings r ON r.id = di.reading_id
+            WHERE di.digest_id = ?
             ORDER BY di.id
             """,
             (digest_id,),
@@ -507,9 +511,21 @@ class AlbertoRepository:
                 ORDER BY d.digest_date DESC, di.created_at DESC, di.id DESC
                 LIMIT 1
               ) AS digest_date,
+              (
+                SELECT di.body
+                FROM digest_items di
+                JOIN digests d ON d.id = di.digest_id
+                WHERE di.paper_id = p.id
+                  AND di.item_type = 'reading'
+                  AND d.project_id = r.project_id
+                ORDER BY d.digest_date DESC, di.created_at DESC, di.id DESC
+                LIMIT 1
+              ) AS digest_body,
+              'reading' AS item_type,
               p.id AS paper_id,
               p.title,
               p.doi,
+              p.abstract,
               p.venue,
               p.publication_year,
               p.url,
@@ -538,6 +554,52 @@ class AlbertoRepository:
                   AND r2.access_level != 'METADATA_ONLY'
               )
             ORDER BY r.created_at DESC, r.id DESC
+            """,
+            params,
+        ).fetchall()
+
+    def digest_candidates_for_notion(self, project_id: str | None = None) -> list[sqlite3.Row]:
+        project_filter = "" if project_id is None else "AND d.project_id=?"
+        params: tuple[str, ...] = () if project_id is None else (project_id,)
+        return self.conn.execute(
+            f"""
+            SELECT
+              di.id AS digest_item_id,
+              di.item_type,
+              di.body AS digest_body,
+              d.digest_date,
+              p.id AS paper_id,
+              p.title,
+              p.doi,
+              p.abstract,
+              p.venue,
+              p.publication_year,
+              p.url,
+              pr.name AS project_name,
+              pr.id AS project_id,
+              'METADATA_ONLY' AS access_level,
+              '{{}}' AS structured_json,
+              0 AS confidence,
+              COALESCE((
+                SELECT GROUP_CONCAT(a.name, ', ')
+                FROM paper_authors pa
+                JOIN authors a ON a.id = pa.author_id
+                WHERE pa.paper_id = p.id
+                ORDER BY pa.author_order
+              ), '') AS authors
+            FROM digest_items di
+            JOIN digests d ON d.id = di.digest_id
+            JOIN projects pr ON pr.id = d.project_id
+            JOIN papers p ON p.id = di.paper_id
+            WHERE di.item_type = 'paper' {project_filter}
+              AND NOT EXISTS (
+                SELECT 1
+                FROM readings r
+                WHERE r.project_id = d.project_id
+                  AND r.paper_id = p.id
+                  AND r.access_level != 'METADATA_ONLY'
+              )
+            ORDER BY d.digest_date DESC, di.created_at DESC, di.id DESC
             """,
             params,
         ).fetchall()

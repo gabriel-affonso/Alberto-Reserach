@@ -184,12 +184,13 @@ def backfill_digest_readings_to_notion(
     adapter: NotionAdapter | None = None,
     project_id: str | None = None,
 ) -> tuple[int, NotionSyncReport]:
-    """Synchronize every historical reading that was included in a digest."""
+    """Synchronize validated readings and historical digest candidates."""
     adapter = adapter or NotionAdapter()
     if not adapter.configured:
         return 0, NotionSyncReport(status="not_configured")
     linked = repo.link_historical_digest_readings(project_id)
-    return linked, sync_notion_rows(repo, repo.all_readings_for_notion(project_id), adapter=adapter)
+    rows = repo.all_readings_for_notion(project_id) + repo.digest_candidates_for_notion(project_id)
+    return linked, sync_notion_rows(repo, rows, adapter=adapter)
 
 
 def sync_notion_rows(
@@ -248,6 +249,9 @@ def article_database_properties() -> dict[str, Any]:
         "Confidence": {"number": {"format": "number"}},
         "Digest date": {"date": {}},
         "Digest reference": {"rich_text": {}},
+        "Archive status": {"select": {"options": []}},
+        "Abstract": {"rich_text": {}},
+        "Digest summary": {"rich_text": {}},
         "Central argument": {"rich_text": {}},
         "Relevance": {"rich_text": {}},
     }
@@ -256,6 +260,7 @@ def article_database_properties() -> dict[str, Any]:
 def notion_article_properties(row: Any) -> dict[str, Any]:
     structured = structured_reading(row["structured_json"])
     digest_date = clean_text(row["digest_date"])
+    access_level = clean_text(row["access_level"]) or "METADATA_ONLY"
     return {
         "Article": {"title": text_blocks(row["title"])},
         "Project": {"rich_text": text_blocks(row["project_name"])},
@@ -264,10 +269,13 @@ def notion_article_properties(row: Any) -> dict[str, Any]:
         "Venue": {"rich_text": text_blocks(row["venue"])},
         "Year": {"number": row["publication_year"]},
         "URL": {"url": clean_text(row["url"]) or None},
-        "Read access": {"select": {"name": clean_text(row["access_level"]) or "METADATA_ONLY"}},
+        "Read access": {"select": {"name": access_level}},
         "Confidence": {"number": float(row["confidence"])},
         "Digest date": {"date": {"start": digest_date} if digest_date else None},
         "Digest reference": {"rich_text": text_blocks(row["digest_item_id"])},
+        "Archive status": {"select": {"name": "Read" if access_level != "METADATA_ONLY" else "Candidate / metadata only"}},
+        "Abstract": {"rich_text": text_blocks(row["abstract"])},
+        "Digest summary": {"rich_text": text_blocks(row["digest_body"])},
         "Central argument": {"rich_text": text_blocks(structured.get("central_argument"))},
         "Relevance": {"rich_text": text_blocks(structured.get("relevance_to_project") or structured.get("relevance"))},
     }

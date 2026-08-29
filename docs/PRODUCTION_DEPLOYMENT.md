@@ -102,7 +102,7 @@ export SMTP_TO=...
 
 Notion archive requires an internal integration with access to a parent page. Set `NOTION_API_KEY`, run `alberto notion setup --parent-page-id <page-id>`, then store the returned `NOTION_DATA_SOURCE_ID`. For the production pipeline, set `ALBERTO_NOTION_ENABLED=1` in the service environment; this avoids changing a version-controlled project YAML.
 
-After updating a NUC that already has prior readings, run `set -a; source ~/.alberto-env; set +a; alberto notion backfill --db "$ALBERTO_DB"` once to archive every validated full-text, partial-text or abstract reading. The command can be safely re-run after an interruption. It adds the required Alberto archive fields to an existing Notion database without removing its existing fields.
+After updating a NUC that already has prior research, run `set -a; source ~/.alberto-env; set +a; alberto notion backfill --db "$ALBERTO_DB"` once to archive every validated full-text, partial-text or abstract reading and every historical digest candidate. Candidates are labeled `Candidate / metadata only`. The command can be safely re-run after an interruption. It adds the required Alberto archive fields to an existing Notion database without removing its existing fields.
 
 For Gmail or Google Workspace, use an app password rather than your account password. Local digest saving works without Zotero, email or Notion credentials.
 

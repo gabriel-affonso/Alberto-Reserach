@@ -220,3 +220,37 @@ def test_backfill_includes_readings_that_were_not_promoted_to_a_digest(repo: Alb
     assert report.created == 2
     properties = {page[1]["Article"]["title"][0]["text"]["content"]: page[1] for page in adapter.created}
     assert properties["Unreported reading"]["Digest date"]["date"] is None
+
+
+def test_backfill_includes_historical_digest_candidates(repo: AlbertoRepository) -> None:
+    config = project_config()
+    repo.upsert_project(config)
+    paper_id = repo.upsert_paper(
+        PaperRecord(title="Historic candidate", abstract="Candidate abstract", publication_year=2025)
+    )
+    repo.create_digest(
+        config["id"],
+        None,
+        "2026-08-03",
+        "Historic digest",
+        "Body",
+        {},
+        [
+            {
+                "id": "candidate-item",
+                "paper_id": paper_id,
+                "item_type": "paper",
+                "title": "Historic candidate",
+                "body": "Needs full-text acquisition.",
+                "stable_ref": "candidate-item",
+            }
+        ],
+    )
+    adapter = FakeNotionAdapter()
+
+    _, report = backfill_digest_readings_to_notion(repo, adapter=adapter)  # type: ignore[arg-type]
+
+    assert report.created == 1
+    properties = adapter.created[0][1]
+    assert properties["Archive status"]["select"]["name"] == "Candidate / metadata only"
+    assert properties["Abstract"]["rich_text"][0]["text"]["content"] == "Candidate abstract"
