@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from alberto.db.repositories import AlbertoRepository
+from alberto.research.dedupe import normalize_doi, normalize_text
 
 
 LOG = logging.getLogger("alberto.research.notion")
@@ -121,6 +122,32 @@ class NotionAdapter:
         if updates:
             self._request("PATCH", f"/data_sources/{data_source_id}", json={"properties": updates})
 
+    def existing_article_pages(self, data_source_id: str) -> dict[str, str]:
+        """Return page ids indexed by DOI and normalized title for deduplication."""
+        index: dict[str, str] = {}
+        cursor: str | None = None
+        while True:
+            payload: dict[str, Any] = {"page_size": 100}
+            if cursor:
+                payload["start_cursor"] = cursor
+            response = self._request("POST", f"/data_sources/{data_source_id}/query", json=payload)
+            for page in response.get("results", []):
+                if not isinstance(page, dict) or not page.get("id"):
+                    continue
+                properties = page.get("properties")
+                if not isinstance(properties, dict):
+                    continue
+                page_id = str(page["id"])
+                doi = normalize_doi(notion_property_text(properties.get("DOI")))
+                title = normalize_text(notion_property_text(properties.get("Article")))
+                if doi:
+                    index.setdefault(f"doi:{doi}", page_id)
+                if title:
+                    index.setdefault(f"title:{title}", page_id)
+            cursor = response.get("next_cursor")
+            if not cursor or not response.get("has_more"):
+                return index
+
     def create_article_page(self, data_source_id: str, properties: dict[str, Any], children: list[dict[str, Any]]) -> str:
         response = self._request(
             "POST",
@@ -205,6 +232,7 @@ def sync_notion_rows(
     try:
         data_source_id = adapter.resolved_data_source_id()
         adapter.ensure_article_schema(data_source_id)
+        remote_pages = adapter.existing_article_pages(data_source_id)
         created = updated = 0
         synced_papers: set[tuple[str, int]] = set()
         for row in rows:
@@ -217,6 +245,8 @@ def sync_notion_rows(
             synced_papers.add(paper_key)
             properties = notion_article_properties(row)
             existing_page_id = repo.notion_page_id(row_project_id, int(row["paper_id"]))
+            if not existing_page_id:
+                existing_page_id = remote_pages.get(notion_row_key(row))
             if existing_page_id:
                 adapter.update_article_page(existing_page_id, properties)
                 updated += 1
@@ -224,6 +254,7 @@ def sync_notion_rows(
             else:
                 page_id = adapter.create_article_page(data_source_id, properties, notion_article_children(row))
                 created += 1
+                remote_pages[notion_row_key(row)] = page_id
             repo.record_notion_article_sync(
                 project_id=row_project_id,
                 paper_id=int(row["paper_id"]),
@@ -332,3 +363,30 @@ def clean_text(value: Any) -> str:
 def text_blocks(value: Any) -> list[dict[str, Any]]:
     text = clean_text(value)
     return [] if not text else [{"type": "text", "text": {"content": text}}]
+
+
+def notion_row_key(row: Any) -> str:
+    doi = normalize_doi(row["doi"])
+    if doi:
+        return f"doi:{doi}"
+    return f"title:{normalize_text(row['title'])}"
+
+
+def notion_property_text(property_value: Any) -> str:
+    if not isinstance(property_value, dict):
+        return ""
+    value = property_value.get(property_value.get("type", ""))
+    if not isinstance(value, list):
+        return ""
+    parts: list[str] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        plain = item.get("plain_text")
+        if isinstance(plain, str):
+            parts.append(plain)
+            continue
+        text = item.get("text")
+        if isinstance(text, dict) and isinstance(text.get("content"), str):
+            parts.append(text["content"])
+    return "".join(parts)

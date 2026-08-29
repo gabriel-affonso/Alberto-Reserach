@@ -52,12 +52,16 @@ class FakeNotionAdapter:
         self.created: list[tuple[str, dict, list[dict]]] = []
         self.updated: list[tuple[str, dict]] = []
         self.schema_sources: list[str] = []
+        self.existing_pages: dict[str, str] = {}
 
     def resolved_data_source_id(self) -> str:
         return "source-1"
 
     def ensure_article_schema(self, data_source_id: str) -> None:
         self.schema_sources.append(data_source_id)
+
+    def existing_article_pages(self, data_source_id: str) -> dict[str, str]:
+        return self.existing_pages
 
     def create_article_page(self, data_source_id: str, properties: dict, children: list[dict]) -> str:
         self.created.append((data_source_id, properties, children))
@@ -114,6 +118,19 @@ def test_sync_updates_an_existing_article_page(repo: AlbertoRepository) -> None:
     assert report.updated == 1
     assert not adapter.created
     assert adapter.updated[0][0] == "existing-page"
+
+
+def test_sync_reuses_an_existing_notion_page_from_another_local_database(repo: AlbertoRepository) -> None:
+    config, paper_id, digest_id = digest_with_reading(repo)
+    adapter = FakeNotionAdapter()
+    adapter.existing_pages = {"doi:10.1000/notion": "remote-page"}
+
+    report = sync_digest_readings_to_notion(repo, config=config, digest_id=digest_id, adapter=adapter)  # type: ignore[arg-type]
+
+    assert report.created == 0
+    assert report.updated == 1
+    assert adapter.updated[0][0] == "remote-page"
+    assert repo.notion_page_id(config["id"], paper_id) == "remote-page"
 
 
 def test_notion_is_opt_in_and_schema_has_searchable_fields(monkeypatch) -> None:
