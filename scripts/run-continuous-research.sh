@@ -8,7 +8,9 @@ ALBERTO_BIN="${ALBERTO_BIN:-./.venv/bin/alberto}"
 
 if [[ -f "$ENV_FILE" ]]; then
   # shellcheck disable=SC1090
+  set -a
   source "$ENV_FILE"
+  set +a
 fi
 
 while true; do

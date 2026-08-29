@@ -54,4 +54,4 @@ Alberto can maintain a searchable Notion database containing every validated rea
 
 Future `alberto research digest` runs create a page for each new digest reading and update that same page when the article is read again. Candidate-only digest items are intentionally not sent to Notion.
 
-To archive digest readings that existed before Notion was enabled, run `alberto notion backfill --db "$ALBERTO_DB"`. It is idempotent and only includes readings that were actually represented in a digest.
+To archive digest readings that existed before Notion was enabled, run `set -a; source ~/.alberto-env; set +a; alberto notion backfill --db "$ALBERTO_DB"`. It is idempotent and only includes readings that were actually represented in a digest.

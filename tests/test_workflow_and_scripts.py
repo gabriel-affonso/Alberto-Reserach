@@ -719,6 +719,7 @@ def test_continuous_research_script_uses_env_and_digest() -> None:
     script = Path("scripts/run-continuous-research.sh").read_text(encoding="utf-8")
     assert "ALBERTO_RESEARCH_INTERVAL_SECONDS" in script
     assert "$HOME/.alberto-env" in script
+    assert "set -a" in script
     assert "research run --project" in script
     assert "research digest --project" in script
     assert "sleep \"$INTERVAL_SECONDS\"" in script
